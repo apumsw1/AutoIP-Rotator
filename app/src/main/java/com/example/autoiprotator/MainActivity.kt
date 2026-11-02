@@ -324,12 +324,14 @@ class MainActivity : Activity() {
         // BRIGHT TIMER SELECTOR
 
         val timerOptions = arrayOf(
-            "5 seconds",
-            "10 seconds",
-            "30 seconds",
-            "1 minute",
-            "2 minutes",
-            "5 minutes"
+    "∞ Unlimited — Stable IP",
+    "5 seconds — Auto Rotate",
+    "10 seconds — Auto Rotate",
+    "30 seconds — Auto Rotate",
+    "1 minute — Auto Rotate",
+    "2 minutes — Auto Rotate",
+    "5 minutes — Auto Rotate"
+)
         )
 
         timerSpinner = Spinner(this)
