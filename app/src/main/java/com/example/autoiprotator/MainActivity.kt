@@ -331,7 +331,7 @@ class MainActivity : Activity() {
     "1 minute — Auto Rotate",
     "2 minutes — Auto Rotate",
     "5 minutes — Auto Rotate"
-)
+
         )
 
         timerSpinner = Spinner(this)
