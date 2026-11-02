@@ -45,3 +45,4 @@ class MainActivity : AppCompatActivity() {
         setContentView(layout)
     }
 }
+// Initial project setup
