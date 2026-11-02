@@ -35,4 +35,3 @@ jobs:
         with:
           name: AutoIP-Rotator-debug
           path: app/build/outputs/apk/debug/*.apk
-
