@@ -27,8 +27,11 @@ class MainActivity : Activity() {
     private lateinit var personalConnectButton: Button
     private lateinit var publicConnectButton: Button
     private lateinit var timerSpinner: Spinner
+    private lateinit var publicTimerSpinner: Spinner
     private lateinit var connectionTimeLabel: TextView
     private lateinit var rotationCountdownLabel: TextView
+    private lateinit var publicConnectionTimeLabel: TextView
+    private lateinit var publicRotationCountdownLabel: TextView
     private lateinit var personalPanel: LinearLayout
     private lateinit var publicPanel: LinearLayout
     private lateinit var publicStatus: TextView
@@ -45,8 +48,11 @@ class MainActivity : Activity() {
     private var connectionStartedAt = 0L
     private var nextReconnectAt = 0L
     private var activeIntervalMs = 0L
+
+    private var publicActiveIntervalMs = 0L
     private var publicServers: List<VpnGateServer> = emptyList()
     private var selectedPublicServer: VpnGateServer? = null
+
     private var logoAnimator: ObjectAnimator? = null
     private var pulseAnimator: ObjectAnimator? = null
 
@@ -216,9 +222,7 @@ class MainActivity : Activity() {
         val logo = makeText("◈ AUTOIP ROTATOR ◈", 22f, cyan, true)
         root.addView(logo, fullWidth())
 
-        root.addView(
-            makeText("M'r ApurbA Creation", 10f, brandYellow, true)
-        )
+        root.addView(makeText("M'r ApurbA Creation", 10f, brandYellow, true))
         root.addView(
             makeText("SYSTEM INITIALIZED  //  SECURE MODE", 9f, neon, true)
         )
@@ -235,9 +239,7 @@ class MainActivity : Activity() {
         val statusCard = card()
         status = makeText(
             "● PERSONAL VPN: NOT CONNECTED",
-            14f,
-            warning,
-            true
+            14f, warning, true
         )
         statusCard.addView(status, fullWidth())
         root.addView(statusCard, withBottomMargin(12))
@@ -285,8 +287,7 @@ class MainActivity : Activity() {
             makeText(
                 "Reconnect uses the imported configuration. " +
                     "A different IP requires a different VPN endpoint.",
-                10f,
-                muted
+                10f, muted
             )
         )
 
@@ -307,39 +308,8 @@ class MainActivity : Activity() {
         animateEntry(statusCard)
     }
 
-    private fun buildPersonalPanel(root: LinearLayout) {
-        personalPanel = card()
-
-        // Numeric prefix removed.
-        personalPanel.addView(
-            makeText("PERSONAL VPN", 17f, neon, true)
-        )
-        personalPanel.addView(
-            makeText(
-                "YOUR OWN WIREGUARD CONFIGURATION",
-                10f,
-                muted,
-                true
-            )
-        )
-
-        val importButton = makeButton("IMPORT WIREGUARD .CONF")
-        importButton.setOnClickListener { openConfigPicker() }
-        personalPanel.addView(
-            importButton,
-            fullWidth().apply {
-                topMargin = dp(12)
-                bottomMargin = dp(14)
-            }
-        )
-
-        personalPanel.addView(
-            makeText("AUTO-RECONNECT INTERVAL", 13f, cyan, true)
-        )
-
-        timerSpinner = Spinner(this)
-
-        val timerAdapter = object : ArrayAdapter<String>(
+    private fun createTimerAdapter(): ArrayAdapter<String> {
+        return object : ArrayAdapter<String>(
             this,
             android.R.layout.simple_spinner_item,
             timerOptions
@@ -372,20 +342,50 @@ class MainActivity : Activity() {
                     setPadding(dp(18), dp(14), dp(18), dp(14))
                     setBackgroundColor(Color.rgb(10, 28, 43))
                 }
+        }.also {
+            it.setDropDownViewResource(
+                android.R.layout.simple_spinner_dropdown_item
+            )
         }
+    }
 
-        timerAdapter.setDropDownViewResource(
-            android.R.layout.simple_spinner_dropdown_item
-        )
-        timerSpinner.adapter = timerAdapter
-        timerSpinner.background = makeGradient(
+    private fun styleTimerSpinner(spinner: Spinner) {
+        spinner.background = makeGradient(
             Color.rgb(15, 55, 72),
             Color.rgb(8, 30, 48),
             cyan
         )
-        timerSpinner.dropDownVerticalOffset = dp(6)
-        timerSpinner.setSelection(0)
+        spinner.dropDownVerticalOffset = dp(6)
+    }
 
+    private fun buildPersonalPanel(root: LinearLayout) {
+        personalPanel = card()
+        personalPanel.addView(makeText("PERSONAL VPN", 17f, neon, true))
+        personalPanel.addView(
+            makeText(
+                "YOUR OWN WIREGUARD CONFIGURATION",
+                10f, muted, true
+            )
+        )
+
+        val importButton = makeButton("IMPORT WIREGUARD .CONF")
+        importButton.setOnClickListener { openConfigPicker() }
+        personalPanel.addView(
+            importButton,
+            fullWidth().apply {
+                topMargin = dp(12)
+                bottomMargin = dp(14)
+            }
+        )
+
+        personalPanel.addView(
+            makeText("AUTO-RECONNECT INTERVAL", 13f, cyan, true)
+        )
+
+        timerSpinner = Spinner(this)
+        timerSpinner.adapter = createTimerAdapter()
+        styleTimerSpinner(timerSpinner)
+        timerSpinner.setSelection(0)
         timerSpinner.onItemSelectedListener =
             object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(
@@ -432,8 +432,7 @@ class MainActivity : Activity() {
         personalPanel.addView(
             makeText(
                 "Your private configuration stays on this device.",
-                10f,
-                muted
+                10f, muted
             )
         )
         root.addView(personalPanel, withBottomMargin(16))
@@ -470,11 +469,7 @@ class MainActivity : Activity() {
         )
 
         serverSpinner = Spinner(this)
-        serverSpinner.background = makeGradient(
-            Color.rgb(15, 55, 72),
-            Color.rgb(8, 30, 48),
-            cyan
-        )
+        styleTimerSpinner(serverSpinner)
         publicPanel.addView(
             serverSpinner,
             fullWidth().apply {
@@ -485,30 +480,61 @@ class MainActivity : Activity() {
 
         serverDetails = makeText(
             "Tap Refresh Free Servers to retrieve available volunteer relays.",
-            12f,
-            muted
+            12f, muted
         )
         publicPanel.addView(serverDetails, fullWidth())
 
-        // Button is displayed, but real connection requires the OpenVPN engine.
-        publicConnectButton = makeButton("CONNECT PUBLIC VPN", false).apply {
-            textSize = 14f
-        }
+        // Public VPN has its own independent timer selection.
+        publicPanel.addView(
+            makeText("AUTO-RECONNECT INTERVAL", 13f, cyan, true),
+            fullWidth().apply { topMargin = dp(14) }
+        )
+
+        publicTimerSpinner = Spinner(this)
+        publicTimerSpinner.adapter = createTimerAdapter()
+        styleTimerSpinner(publicTimerSpinner)
+        publicTimerSpinner.setSelection(0)
+        publicTimerSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    publicActiveIntervalMs = intervalForPosition(position)
+                    updatePublicTimerDisplay()
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+
+        publicPanel.addView(
+            publicTimerSpinner,
+            fullWidth().apply {
+                topMargin = dp(8)
+                bottomMargin = dp(8)
+            }
+        )
+
+        publicConnectionTimeLabel = makeText(
+            "CONNECTED TIME: 00:00:00", 12f, neon, true
+        )
+        publicRotationCountdownLabel = makeText(
+            "AUTO-RECONNECT: UNLIMITED", 12f, cyan, true
+        )
+        publicPanel.addView(publicConnectionTimeLabel, fullWidth())
+        publicPanel.addView(publicRotationCountdownLabel, fullWidth())
+
+        // OpenVPN is not implemented yet, so never pretend this connects.
+        publicConnectButton = makeButton("CONNECT PUBLIC VPN", false)
         publicConnectButton.isEnabled = false
         publicConnectButton.setOnClickListener {
-            if (selectedPublicServer == null) {
-                Toast.makeText(
-                    this@MainActivity,
-                    "Please select a VPN Gate server first",
-                    Toast.LENGTH_SHORT
-                ).show()
-            } else {
-                Toast.makeText(
-                    this@MainActivity,
-                    "OpenVPN engine is not integrated yet. No VPN connection was started.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+            Toast.makeText(
+                this,
+                "OpenVPN engine is not integrated yet.",
+                Toast.LENGTH_LONG
+            ).show()
         }
         publicPanel.addView(
             publicConnectButton,
@@ -521,13 +547,34 @@ class MainActivity : Activity() {
         publicPanel.addView(
             makeText(
                 "SERVER DISCOVERY ONLY — OPENVPN ENGINE NOT INSTALLED",
-                11f,
-                warning,
-                true
+                11f, warning, true
             )
         )
 
         root.addView(publicPanel, withBottomMargin(16))
+    }
+
+    private fun intervalForPosition(position: Int): Long =
+        when (position) {
+            1 -> 5_000L
+            2 -> 10_000L
+            3 -> 30_000L
+            4 -> 60_000L
+            5 -> 120_000L
+            6 -> 300_000L
+            else -> 0L
+        }
+
+    private fun updatePublicTimerDisplay() {
+        publicConnectionTimeLabel.text = "CONNECTED TIME: 00:00:00"
+        publicRotationCountdownLabel.text =
+            if (publicActiveIntervalMs == 0L) {
+                "AUTO-RECONNECT: UNLIMITED"
+            } else {
+                "AUTO-RECONNECT: ${
+                    formatDuration(publicActiveIntervalMs / 1000L)
+                }"
+            }
     }
 
     private fun loadPublicServers() {
@@ -599,7 +646,6 @@ class MainActivity : Activity() {
                     android.R.layout.simple_spinner_dropdown_item
                 )
                 serverSpinner.adapter = adapter
-
                 serverSpinner.onItemSelectedListener =
                     object : AdapterView.OnItemSelectedListener {
                         override fun onItemSelected(
@@ -609,14 +655,11 @@ class MainActivity : Activity() {
                             id: Long
                         ) {
                             selectedPublicServer = publicServers.getOrNull(position)
-                            publicConnectButton.isEnabled =
-                                selectedPublicServer != null
                             showSelectedServer()
                         }
 
                         override fun onNothingSelected(parent: AdapterView<*>?) {
                             selectedPublicServer = null
-                            publicConnectButton.isEnabled = false
                         }
                     }
 
@@ -750,15 +793,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateReconnectInterval(position: Int) {
-        activeIntervalMs = when (position) {
-            1 -> 5_000L
-            2 -> 10_000L
-            3 -> 30_000L
-            4 -> 60_000L
-            5 -> 120_000L
-            6 -> 300_000L
-            else -> 0L
-        }
+        activeIntervalMs = intervalForPosition(position)
 
         if (connected) {
             nextReconnectAt = if (activeIntervalMs == 0L) {
