@@ -1,3 +1,4 @@
+
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -22,11 +23,24 @@
 
         </activity>
 
+        <!-- Existing WireGuard VPN service -->
         <service
-    android:name="com.wireguard.android.backend.GoBackend$VpnService"
-    android:permission="android.permission.BIND_VPN_SERVICE"
-    android:exported="true"
-    tools:replace="android:exported">
+            android:name="com.wireguard.android.backend.GoBackend$VpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="true"
+            tools:replace="android:exported">
+
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+
+        </service>
+
+        <!-- OpenVPN service -->
+        <service
+            android:name=".OpenVpnVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="true">
 
             <intent-filter>
                 <action android:name="android.net.VpnService" />
