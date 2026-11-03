@@ -156,7 +156,27 @@ jobs:
           export AR="$AR_TOOL"
           export RANLIB="$RANLIB_TOOL"
           export ANDROID_PLATFORM="android-$API"
+          SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
 
+          case "$RUST_TARGET" in
+            aarch64-linux-android)
+              BINDGEN_TARGET="aarch64-linux-android$API"
+              ;;
+            armv7-linux-androideabi)
+              BINDGEN_TARGET="armv7a-linux-androideabi$API"
+              ;;
+            i686-linux-android)
+              BINDGEN_TARGET="i686-linux-android$API"
+              ;;
+            x86_64-linux-android)
+              BINDGEN_TARGET="x86_64-linux-android$API"
+              ;;
+          esac
+
+          BINDGEN_ARGS="--target=$BINDGEN_TARGET --sysroot=$SYSROOT"
+
+          export BINDGEN_EXTRA_CLANG_ARGS="$BINDGEN_ARGS"
+          export "BINDGEN_EXTRA_CLANG_ARGS_${TARGET_ENV}=$BINDGEN_ARGS"
           cd "$RUNNER_TEMP/openvpn-connect-rs"
 
           echo "ABI: ${{ matrix.abi }}"
