@@ -35,7 +35,41 @@ private lateinit var rotationCountdownLabel: TextView
     private lateinit var serverLoader: VpnGateServerLoader
 
     private val executor = Executors.newSingleThreadExecutor()
+private val timerHandler = Handler(Looper.getMainLooper())
 
+private var connectionStartedAt = 0L
+private var nextReconnectAt = 0L
+private var activeIntervalMs = 0L
+private var reconnectInProgress = false
+
+private val timerTick = object : Runnable {
+    override fun run() {
+        if (!connected) return
+
+        val now = System.currentTimeMillis()
+        val elapsed = (now - connectionStartedAt) / 1000L
+
+        connectionTimeLabel.text =
+            "CONNECTED TIME: ${formatDuration(elapsed)}"
+
+        if (activeIntervalMs == 0L) {
+            rotationCountdownLabel.text =
+                "AUTO-RECONNECT: UNLIMITED"
+        } else {
+            val remaining =
+                (nextReconnectAt - now).coerceAtLeast(0L) / 1000L
+
+            rotationCountdownLabel.text =
+                "NEXT RECONNECT: ${formatDuration(remaining)}"
+
+            if (now >= nextReconnectAt && !reconnectInProgress) {
+                reconnectUsingCurrentConfig()
+            }
+        }
+
+        timerHandler.postDelayed(this, 1000L)
+    }
+}
     private var configText: String? = null
     private var connected = false
 
