@@ -9,7 +9,7 @@ on:
       - ".github/workflows/build-openvpn-android.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Android NDK
         uses: nttld/setup-ndk@v1
@@ -29,7 +31,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: >
+          targets: |
             aarch64-linux-android
             armv7-linux-androideabi
             x86_64-linux-android
@@ -46,6 +48,18 @@ jobs:
             -t x86_64 \
             -o ../../app/src/main/jniLibs \
             build --release
+
+      - name: Commit native libraries
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/jniLibs/
+          if git diff --cached --quiet; then
+            echo "No native library changes."
+          else
+            git commit -m "Add compiled OpenVPN Android native libraries"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
 
       - name: Upload native libraries
         uses: actions/upload-artifact@v4
