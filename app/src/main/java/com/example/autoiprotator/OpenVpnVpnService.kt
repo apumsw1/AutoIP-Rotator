@@ -312,7 +312,10 @@ class OpenVpnVpnService : VpnService() {
 
             if (Build.VERSION.SDK_INT >= 33) {
                 builder.excludeRoute(
-                    android.net.IpPrefix(address, prefix)
+    android.net.IpPrefix(
+        InetAddress.getByName(address),
+        prefix
+    )
                 )
             }
 
