@@ -1,4 +1,3 @@
-
 package com.example.autoiprotator
 
 import android.util.Base64
@@ -21,27 +20,68 @@ object VpnGateRepository {
     private const val API_URL =
         "https://www.vpngate.net/api/iphone/"
 
+    private const val CONNECT_TIMEOUT_MS = 30000
+    private const val READ_TIMEOUT_MS = 60000
+    private const val MAX_ATTEMPTS = 2
+
     fun fetchServers(): List<VpnGateServer> {
+        var lastError: Exception? = null
+
+        repeat(MAX_ATTEMPTS) { attempt ->
+            try {
+                return fetchServersOnce()
+            } catch (error: Exception) {
+                lastError = error
+                if (attempt < MAX_ATTEMPTS - 1) {
+                    Thread.sleep(1500)
+                }
+            }
+        }
+
+        throw Exception(
+            lastError?.message
+                ?: "VPN Gate server list could not be downloaded."
+        )
+    }
+
+    private fun fetchServersOnce(): List<VpnGateServer> {
         val connection =
             URL(API_URL).openConnection() as HttpURLConnection
 
         try {
             connection.requestMethod = "GET"
-            connection.connectTimeout = 15000
-            connection.readTimeout = 20000
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = READ_TIMEOUT_MS
+            connection.instanceFollowRedirects = true
 
             connection.setRequestProperty(
                 "User-Agent",
                 "AutoIP-Rotator/1.0 Android"
             )
 
-            check(connection.responseCode in 200..299) {
-                "VPN Gate server list unavailable"
+            connection.setRequestProperty(
+                "Accept",
+                "text/csv,text/plain,*/*"
+            )
+
+            connection.setRequestProperty(
+                "Connection",
+                "close"
+            )
+
+            val responseCode = connection.responseCode
+
+            check(responseCode in 200..299) {
+                "VPN Gate server returned HTTP $responseCode"
             }
 
             val csv = connection.inputStream
                 .bufferedReader(Charsets.UTF_8)
                 .use { it.readText() }
+
+            check(csv.isNotBlank()) {
+                "VPN Gate returned an empty server list."
+            }
 
             return parseCsv(csv)
 
@@ -58,15 +98,16 @@ object VpnGateRepository {
         val headerIndex = lines.indexOfFirst {
             it.trimStart()
                 .removePrefix("#")
+                .trimStart()
                 .startsWith("HostName", true)
         }
 
         require(headerIndex >= 0) {
-            "Invalid VPN Gate server list"
+            "Invalid VPN Gate server list format."
         }
 
         val headers = parseLine(
-            lines[headerIndex].trim().removePrefix("#")
+            lines[headerIndex].trim().removePrefix("#").trim()
         ).map { it.trim() }
 
         val indexes = headers.mapIndexed { index, name ->
@@ -87,7 +128,9 @@ object VpnGateRepository {
         val result = mutableListOf<VpnGateServer>()
 
         for (line in lines.drop(headerIndex + 1)) {
-            if (line.startsWith("*") || line.startsWith("#")) {
+            if (line.trimStart().startsWith("*") ||
+                line.trimStart().startsWith("#")
+            ) {
                 continue
             }
 
