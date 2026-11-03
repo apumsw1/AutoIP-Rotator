@@ -1,4 +1,3 @@
-
 package com.example.autoiprotator
 
 import android.animation.ObjectAnimator
@@ -15,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
 import android.widget.*
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -26,10 +26,18 @@ class MainActivity : Activity() {
     private lateinit var personalPanel: LinearLayout
     private lateinit var publicPanel: LinearLayout
 
+    private lateinit var publicStatus: TextView
+    private lateinit var serverSpinner: Spinner
+    private lateinit var serverDetails: TextView
+    private lateinit var serverLoader: VpnGateServerLoader
+
     private val executor = Executors.newSingleThreadExecutor()
 
     private var configText: String? = null
     private var connected = false
+
+    private var publicServers: List<VpnGateServer> = emptyList()
+    private var selectedPublicServer: VpnGateServer? = null
 
     private val bg = Color.rgb(4, 9, 18)
     private val cardTop = Color.rgb(13, 35, 48)
@@ -49,6 +57,8 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         engine = VpnEngine(applicationContext)
+        serverLoader = VpnGateServerLoader()
+
         buildInterface()
     }
 
@@ -81,11 +91,13 @@ class MainActivity : Activity() {
             textSize = size
             setTextColor(color)
             gravity = Gravity.CENTER
+
             typeface = if (bold) {
                 Typeface.create("sans-serif", Typeface.BOLD)
             } else {
                 Typeface.create("sans-serif", Typeface.NORMAL)
             }
+
             setPadding(dp(8), dp(8), dp(8), dp(8))
             letterSpacing = 0.04f
         }
@@ -171,8 +183,6 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(22), dp(18), dp(30))
         }
 
-        // HEADER
-
         val logo = makeText(
             "◈ AUTOIP ROTATOR ◈",
             26f,
@@ -200,8 +210,6 @@ class MainActivity : Activity() {
             )
         )
 
-        // ANIMATED NEON LOGO
-
         ObjectAnimator.ofFloat(
             logo,
             View.ALPHA,
@@ -213,8 +221,6 @@ class MainActivity : Activity() {
             repeatCount = ValueAnimator.INFINITE
             start()
         }
-
-        // STATUS CARD
 
         val statusCard = card()
 
@@ -231,8 +237,6 @@ class MainActivity : Activity() {
             statusCard,
             withBottomMargin(16)
         )
-
-        // MODE SELECTOR
 
         val modeCard = card()
 
@@ -274,7 +278,45 @@ class MainActivity : Activity() {
             withBottomMargin(16)
         )
 
-        // PERSONAL VPN PANEL
+        buildPersonalPanel(root)
+        buildPublicPanel(root)
+
+        root.addView(
+            makeText(
+                "NETWORK MONITOR  //  READY",
+                11f,
+                neon,
+                true
+            )
+        )
+
+        root.addView(
+            makeText(
+                "IP ROTATION IS NOT ACTIVE YET.",
+                10f,
+                muted
+            )
+        )
+
+        personalTab.setOnClickListener {
+            personalPanel.visibility = View.VISIBLE
+            publicPanel.visibility = View.GONE
+            animateEntry(personalPanel)
+        }
+
+        publicTab.setOnClickListener {
+            personalPanel.visibility = View.GONE
+            publicPanel.visibility = View.VISIBLE
+            animateEntry(publicPanel)
+        }
+
+        scroll.addView(root)
+        setContentView(scroll)
+
+        animateEntry(statusCard)
+    }
+
+    private fun buildPersonalPanel(root: LinearLayout) {
 
         personalPanel = card()
 
@@ -297,7 +339,7 @@ class MainActivity : Activity() {
         )
 
         val importButton = makeButton(
-            "＋  IMPORT WIREGUARD .CONF"
+            "IMPORT WIREGUARD .CONF"
         )
 
         importButton.setOnClickListener {
@@ -321,17 +363,14 @@ class MainActivity : Activity() {
             )
         )
 
-        // BRIGHT TIMER SELECTOR
-
         val timerOptions = arrayOf(
-    "∞ Unlimited — Stable IP",
-    "5 seconds — Auto Rotate",
-    "10 seconds — Auto Rotate",
-    "30 seconds — Auto Rotate",
-    "1 minute — Auto Rotate",
-    "2 minutes — Auto Rotate",
-    "5 minutes — Auto Rotate"
-
+            "∞ Unlimited — Stable IP",
+            "5 seconds — Auto Rotate",
+            "10 seconds — Auto Rotate",
+            "30 seconds — Auto Rotate",
+            "1 minute — Auto Rotate",
+            "2 minutes — Auto Rotate",
+            "5 minutes — Auto Rotate"
         )
 
         timerSpinner = Spinner(this)
@@ -357,6 +396,7 @@ class MainActivity : Activity() {
                     setTextColor(white)
                     textSize = 17f
                     typeface = Typeface.DEFAULT_BOLD
+
                     setPadding(
                         dp(15),
                         dp(13),
@@ -386,6 +426,7 @@ class MainActivity : Activity() {
 
                     setTextColor(white)
                     textSize = 16f
+
                     setPadding(
                         dp(18),
                         dp(14),
@@ -422,8 +463,6 @@ class MainActivity : Activity() {
             }
         )
 
-        // PERSONAL CONNECT BUTTON
-
         personalConnectButton = makeButton(
             "CONNECT PERSONAL VPN",
             false
@@ -454,8 +493,9 @@ class MainActivity : Activity() {
             personalPanel,
             withBottomMargin(16)
         )
+    }
 
-        // PUBLIC VPN PANEL
+    private fun buildPublicPanel(root: LinearLayout) {
 
         publicPanel = card()
         publicPanel.visibility = View.GONE
@@ -471,48 +511,90 @@ class MainActivity : Activity() {
 
         publicPanel.addView(
             makeText(
-                "ONE SERVER  •  ONE-CLICK CONNECT",
+                "FREE VPN GATE SERVER DISCOVERY",
                 11f,
                 muted,
                 true
             )
         )
 
-        publicPanel.addView(
-            makeText(
-                "PUBLIC SERVER STATUS",
-                12f,
-                neon,
-                true
-            )
+        publicStatus = makeText(
+            "SERVER LIST NOT LOADED",
+            14f,
+            warning,
+            true
         )
 
         publicPanel.addView(
-            makeText(
-                "SERVER SETUP REQUIRED",
-                15f,
-                warning,
-                true
-            )
+            publicStatus,
+            fullWidth()
         )
 
-        val publicButton = makeButton(
-            "PUBLIC CONNECT  •  COMING SOON",
-            false
+        val refreshButton = makeButton(
+            "REFRESH FREE SERVERS"
         )
+
+        refreshButton.setOnClickListener {
+            loadPublicServers()
+        }
 
         publicPanel.addView(
-            publicButton,
+            refreshButton,
             fullWidth().apply {
                 topMargin = dp(10)
-                bottomMargin = dp(8)
+                bottomMargin = dp(10)
             }
         )
 
         publicPanel.addView(
             makeText(
-                "Public VPN will activate after secure server setup and individual user keys are ready.",
+                "SELECT A VPN GATE SERVER",
+                12f,
+                cyan,
+                true
+            )
+        )
+
+        serverSpinner = Spinner(this)
+
+        serverSpinner.background = makeGradient(
+            Color.rgb(15, 55, 72),
+            Color.rgb(8, 30, 48),
+            cyan
+        )
+
+        publicPanel.addView(
+            serverSpinner,
+            fullWidth().apply {
+                topMargin = dp(8)
+                bottomMargin = dp(10)
+            }
+        )
+
+        serverDetails = makeText(
+            "Tap Refresh Free Servers to retrieve available volunteer relays.",
+            12f,
+            muted
+        )
+
+        publicPanel.addView(
+            serverDetails,
+            fullWidth()
+        )
+
+        publicPanel.addView(
+            makeText(
+                "SERVER DISCOVERY ONLY — CONNECTION ENGINE NOT INSTALLED",
                 11f,
+                warning,
+                true
+            )
+        )
+
+        publicPanel.addView(
+            makeText(
+                "VPN Gate servers are volunteer-operated. Availability and speed can change. Do not treat an untrusted relay as private.",
+                10f,
                 muted
             )
         )
@@ -521,44 +603,134 @@ class MainActivity : Activity() {
             publicPanel,
             withBottomMargin(16)
         )
+    }
 
-        // FOOTER
+    private fun loadPublicServers() {
 
-        root.addView(
-            makeText(
-                "NETWORK MONITOR  //  READY",
-                11f,
-                neon,
-                true
-            )
-        )
+        publicStatus.text = "LOADING VPN GATE SERVERS..."
+        publicStatus.setTextColor(warning)
 
-        root.addView(
-            makeText(
-                "IP ROTATION IS NOT ACTIVE YET.",
-                10f,
-                muted
-            )
-        )
+        serverLoader.load { result ->
 
-        // MODE SWITCHING
+            result.onSuccess { servers ->
 
-        personalTab.setOnClickListener {
-            personalPanel.visibility = View.VISIBLE
-            publicPanel.visibility = View.GONE
-            animateEntry(personalPanel)
+                publicServers = servers
+
+                if (servers.isEmpty()) {
+                    publicStatus.text = "NO SERVERS FOUND"
+                    publicStatus.setTextColor(warning)
+
+                    serverDetails.text =
+                        "The server list was empty. Try refreshing later."
+
+                    return@load
+                }
+
+                val labels = servers.map { server ->
+
+                    val ping = if (server.pingMs >= 0) {
+                        server.pingMs.toString() + " ms"
+                    } else {
+                        "Ping unknown"
+                    }
+
+                    server.country + " • " +
+                        server.speedMbps.toInt() +
+                        " Mbps • " + ping
+                }
+
+                val adapter = ArrayAdapter(
+                    this,
+                    android.R.layout.simple_spinner_item,
+                    labels
+                )
+
+                adapter.setDropDownViewResource(
+                    android.R.layout.simple_spinner_dropdown_item
+                )
+
+                serverSpinner.adapter = adapter
+
+                serverSpinner.onItemSelectedListener =
+                    object : AdapterView.OnItemSelectedListener {
+
+                        override fun onItemSelected(
+                            parent: AdapterView<*>?,
+                            view: View?,
+                            position: Int,
+                            id: Long
+                        ) {
+                            selectedPublicServer =
+                                publicServers.getOrNull(position)
+
+                            showSelectedServer()
+                        }
+
+                        override fun onNothingSelected(
+                            parent: AdapterView<*>?
+                        ) {
+                            selectedPublicServer = null
+                        }
+                    }
+
+                publicStatus.text =
+                    "FOUND " + servers.size + " PUBLIC RELAYS"
+
+                publicStatus.setTextColor(neon)
+
+                serverSpinner.setSelection(0)
+
+            }.onFailure { error ->
+
+                publicStatus.text = "SERVER LIST LOAD FAILED"
+                publicStatus.setTextColor(warning)
+
+                serverDetails.text =
+                    error.message ?: "Could not load VPN Gate servers."
+            }
+        }
+    }
+
+    private fun showSelectedServer() {
+
+        val server = selectedPublicServer ?: return
+
+        val ping = if (server.pingMs >= 0) {
+            server.pingMs.toString() + " ms"
+        } else {
+            "Unknown"
         }
 
-        publicTab.setOnClickListener {
-            personalPanel.visibility = View.GONE
-            publicPanel.visibility = View.VISIBLE
-            animateEntry(publicPanel)
+        serverDetails.text = buildString {
+
+            append("Host: ")
+            append(server.hostName)
+
+            append("\nIP: ")
+            append(server.ip)
+
+            append("\nCountry: ")
+            append(server.country)
+
+            append("\nSpeed: ")
+            append(
+                String.format(
+                    Locale.US,
+                    "%.1f Mbps",
+                    server.speedMbps
+                )
+            )
+
+            append("\nPing: ")
+            append(ping)
+
+            append("\nSessions: ")
+            append(server.sessions)
+
+            append(
+                "\n\nThis server is selected for a future connection step. No VPN tunnel is active."
+            )
         }
-
-        scroll.addView(root)
-        setContentView(scroll)
-
-        animateEntry(statusCard)
     }
 
     private fun openConfigPicker() {
@@ -604,6 +776,7 @@ class MainActivity : Activity() {
             val uri = data?.data ?: return
 
             try {
+
                 val flags = data.flags and
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
 
@@ -611,11 +784,12 @@ class MainActivity : Activity() {
                     uri,
                     flags
                 )
+
             } catch (_: SecurityException) {
                 // Persistent access is not supported by every provider.
             }
 
-            status.text = "● READING CONFIGURATION..."
+            status.text = "READING CONFIGURATION..."
             status.setTextColor(warning)
 
             executor.execute {
@@ -642,7 +816,7 @@ class MainActivity : Activity() {
                         configText = imported
 
                         status.text =
-                            "● PERSONAL CONFIG IMPORTED"
+                            "PERSONAL CONFIG IMPORTED"
 
                         status.setTextColor(neon)
 
@@ -659,7 +833,7 @@ class MainActivity : Activity() {
 
                     runOnUiThread {
 
-                        status.text = "● IMPORT FAILED"
+                        status.text = "IMPORT FAILED"
                         status.setTextColor(warning)
 
                         Toast.makeText(
@@ -677,7 +851,7 @@ class MainActivity : Activity() {
             if (resultCode == RESULT_OK) {
                 connectVpn()
             } else {
-                status.text = "● VPN PERMISSION DENIED"
+                status.text = "VPN PERMISSION DENIED"
                 status.setTextColor(warning)
             }
         }
@@ -716,7 +890,7 @@ class MainActivity : Activity() {
 
         personalConnectButton.isEnabled = false
 
-        status.text = "● CONNECTING PERSONAL VPN..."
+        status.text = "CONNECTING PERSONAL VPN..."
         status.setTextColor(warning)
 
         executor.execute {
@@ -730,7 +904,7 @@ class MainActivity : Activity() {
                     connected = true
 
                     status.text =
-                        "● PERSONAL VPN CONNECTED"
+                        "PERSONAL VPN CONNECTED"
 
                     status.setTextColor(neon)
 
@@ -746,7 +920,7 @@ class MainActivity : Activity() {
 
                     connected = false
 
-                    status.text = "● CONNECTION FAILED"
+                    status.text = "CONNECTION FAILED"
                     status.setTextColor(warning)
 
                     personalConnectButton.text =
@@ -768,7 +942,7 @@ class MainActivity : Activity() {
 
         personalConnectButton.isEnabled = false
 
-        status.text = "● DISCONNECTING..."
+        status.text = "DISCONNECTING..."
         status.setTextColor(warning)
 
         executor.execute {
@@ -782,7 +956,7 @@ class MainActivity : Activity() {
                     connected = false
 
                     status.text =
-                        "● PERSONAL VPN DISCONNECTED"
+                        "PERSONAL VPN DISCONNECTED"
 
                     status.setTextColor(white)
 
@@ -797,7 +971,7 @@ class MainActivity : Activity() {
 
                 runOnUiThread {
 
-                    status.text = "● DISCONNECT FAILED"
+                    status.text = "DISCONNECT FAILED"
                     status.setTextColor(warning)
 
                     personalConnectButton.isEnabled = true
@@ -814,7 +988,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         executor.shutdown()
+        serverLoader.shutdown()
         super.onDestroy()
     }
 }
-
