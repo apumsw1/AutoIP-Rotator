@@ -51,54 +51,24 @@ jobs:
             git \
             curl
 
-      - name: Locate Android SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-
-          if [ ! -d "$SDK_ROOT/cmdline-tools" ]; then
-            echo "Android SDK command-line tools not found: $SDK_ROOT"
-            exit 1
-          fi
-
-          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" \
-            -type f -name sdkmanager | sort -V | tail -n 1)"
-
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager was not found"
-            exit 1
-          fi
-
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
-
-          echo "Android SDK located successfully."
-          "$SDKMANAGER" --version
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Install Android NDK
         shell: bash
         run: |
           set -euo pipefail
 
-          yes | "$SDKMANAGER" --licenses || true
-
-          "$SDKMANAGER" "ndk;27.2.12479018"
+          yes | sdkmanager --licenses || true
+          sdkmanager "ndk;27.2.12479018"
 
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
           NDK_BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
-          if [ ! -x "$NDK_BIN/llvm-ar" ]; then
-            echo "ERROR: NDK installation could not be verified."
-            exit 1
-          fi
+          test -x "$NDK_BIN/llvm-ar"
 
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
-
-          echo "Android NDK installed successfully."
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -115,7 +85,6 @@ jobs:
             "$RUNNER_TEMP/openvpn-connect-rs"
 
           cd "$RUNNER_TEMP/openvpn-connect-rs"
-
           git submodule update --init --recursive
 
       - name: Build OpenVPN Core for Android ABI
@@ -123,7 +92,6 @@ jobs:
         env:
           RUST_TARGET: ${{ matrix.rust_target }}
           CLANG_PREFIX: ${{ matrix.clang_prefix }}
-        
         run: |
           set -euo pipefail
 
@@ -147,7 +115,7 @@ jobs:
               TARGET_ENV=x86_64_linux_android
               ;;
             *)
-              echo "Unsupported target: $RUST_TARGET"
+              echo "Unsupported Rust target: $RUST_TARGET"
               exit 1
               ;;
           esac
@@ -156,16 +124,16 @@ jobs:
           test -x "$CXX"
 
           export "CARGO_TARGET_${TARGET_ENV^^}_LINKER=$LINKER"
-          export "CC_${TARGET_ENV}=$LINKER"
-          export "CXX_${TARGET_ENV}=$CXX"
-          export "AR_${TARGET_ENV}=$NDK_BIN/llvm-ar"
-          export "RANLIB_${TARGET_ENV}=$NDK_BIN/llvm-ranlib"
+          export CC="$LINKER"
+          export CXX="$CXX"
+          export AR="$NDK_BIN/llvm-ar"
+          export RANLIB="$NDK_BIN/llvm-ranlib"
           export ANDROID_PLATFORM="android-$API"
 
           cd "$RUNNER_TEMP/openvpn-connect-rs"
 
-          echo "Target: $RUST_TARGET"
-          echo "Compiler: $LINKER"
+          echo "Rust target: $RUST_TARGET"
+          echo "Android linker: $LINKER"
 
           rustc --version
           cargo --version
@@ -175,3 +143,14 @@ jobs:
             -p openvpn-connect \
             --target "$RUST_TARGET" \
             --features vendor
+
+      - name: Upload Rust build output for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openvpn-core-${{ matrix.abi }}
+          path: |
+            ${{ runner.temp }}/openvpn-connect-rs/target/${{ matrix.rust_target }}/release/deps/*.rlib
+            ${{ runner.temp }}/openvpn-connect-rs/target/${{ matrix.rust_target }}/release/build/
+          if-no-files-found: warn
+          retention-days: 7
