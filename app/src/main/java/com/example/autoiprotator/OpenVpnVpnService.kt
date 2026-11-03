@@ -1,3 +1,4 @@
+
 package com.example.autoiprotator
 
 import android.app.Notification
@@ -19,7 +20,12 @@ class OpenVpnVpnService : VpnService() {
         const val ACTION_DISCONNECT =
             "com.example.autoiprotator.OPENVPN_DISCONNECT"
 
+        const val ACTION_STATUS =
+            "com.example.autoiprotator.OPENVPN_STATUS"
+
         const val EXTRA_CONFIG = "openvpn_config"
+        const val EXTRA_CONNECTED = "openvpn_connected"
+        const val EXTRA_MESSAGE = "openvpn_message"
 
         private const val TAG = "AutoIPOpenVPN"
         private const val CHANNEL_ID = "autoip_vpn_channel"
@@ -50,7 +56,7 @@ class OpenVpnVpnService : VpnService() {
                     intent.getStringExtra(EXTRA_CONFIG)
 
                 if (config.isNullOrBlank()) {
-                    Log.e(TAG, "OpenVPN configuration is empty")
+                    publishStatus(false, "OpenVPN configuration is empty")
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
@@ -62,10 +68,12 @@ class OpenVpnVpnService : VpnService() {
                     )
                 } catch (error: Exception) {
                     Log.e(TAG, "Foreground start failed", error)
+                    publishStatus(false, "Foreground service failed")
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
 
+                publishStatus(false, "Starting VPN connection...")
                 connectVpn(config)
             }
 
@@ -79,9 +87,21 @@ class OpenVpnVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
+    private fun publishStatus(
+        isConnected: Boolean,
+        message: String
+    ) {
+        val intent = Intent(ACTION_STATUS).apply {
+            setPackage(packageName)
+            putExtra(EXTRA_CONNECTED, isConnected)
+            putExtra(EXTRA_MESSAGE, message)
+        }
+
+        sendBroadcast(intent)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "AutoIP VPN Connection",
@@ -104,7 +124,6 @@ class OpenVpnVpnService : VpnService() {
     ): Notification {
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
             Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("AutoIP Rotator")
                 .setContentText(message)
@@ -112,9 +131,7 @@ class OpenVpnVpnService : VpnService() {
                 .setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .build()
-
         } else {
-
             @Suppress("DEPRECATION")
             Notification.Builder(this)
                 .setContentTitle("AutoIP Rotator")
@@ -137,7 +154,6 @@ class OpenVpnVpnService : VpnService() {
     }
 
     private fun connectVpn(config: String) {
-
         Thread({
 
             try {
@@ -148,19 +164,34 @@ class OpenVpnVpnService : VpnService() {
 
                 result.onSuccess {
                     Log.i(TAG, "OpenVPN engine started")
-                    updateNotification("VPN Gate connection started")
+
+                    // Engine started does not mean tunnel connected.
+                    updateNotification("Waiting for VPN tunnel...")
+                    publishStatus(false, "Waiting for VPN tunnel...")
                 }
 
                 result.onFailure { error ->
                     Log.e(TAG, "OpenVPN start failed", error)
-                    disconnectVpn()
+
+                    publishStatus(
+                        false,
+                        error.message ?: "OpenVPN start failed"
+                    )
+
+                    disconnectNativeOnly()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
 
             } catch (error: Exception) {
                 Log.e(TAG, "OpenVPN connection error", error)
-                disconnectVpn()
+
+                publishStatus(
+                    false,
+                    error.message ?: "VPN connection error"
+                )
+
+                disconnectNativeOnly()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -179,6 +210,8 @@ class OpenVpnVpnService : VpnService() {
 
     private fun disconnectVpn() {
         disconnectNativeOnly()
+
+        publishStatus(false, "VPN disconnected")
         Log.i(TAG, "VPN disconnect requested")
     }
 
@@ -189,7 +222,6 @@ class OpenVpnVpnService : VpnService() {
                 .setSession("AutoIP Rotator")
 
             true
-
         } catch (error: Exception) {
             Log.e(TAG, "Tunnel creation failed", error)
             false
@@ -220,7 +252,6 @@ class OpenVpnVpnService : VpnService() {
             require(prefix in 0..if (ipv6) 128 else 32)
 
             vpnBuilder?.addAddress(address, prefix) != null
-
         } catch (error: Exception) {
             Log.e(TAG, "Add address failed", error)
             false
@@ -249,7 +280,6 @@ class OpenVpnVpnService : VpnService() {
             }
 
             true
-
         } catch (error: Exception) {
             Log.e(TAG, "Default route setup failed", error)
             false
@@ -265,7 +295,6 @@ class OpenVpnVpnService : VpnService() {
     ): Boolean {
         return try {
             vpnBuilder?.addRoute(address, prefix) != null
-
         } catch (error: Exception) {
             Log.e(TAG, "Add route failed", error)
             false
@@ -289,7 +318,6 @@ class OpenVpnVpnService : VpnService() {
             }
 
             true
-
         } catch (error: Exception) {
             Log.e(TAG, "Exclude route failed", error)
             false
@@ -302,7 +330,6 @@ class OpenVpnVpnService : VpnService() {
             if (address.isBlank()) return false
 
             vpnBuilder?.addDnsServer(address) != null
-
         } catch (error: Exception) {
             Log.e(TAG, "DNS setup failed", error)
             false
@@ -315,7 +342,6 @@ class OpenVpnVpnService : VpnService() {
             if (mtu !in 576..9000) return false
 
             vpnBuilder?.setMtu(mtu) != null
-
         } catch (error: Exception) {
             Log.e(TAG, "MTU setup failed", error)
             false
@@ -328,7 +354,6 @@ class OpenVpnVpnService : VpnService() {
             if (name.isBlank()) return false
 
             vpnBuilder?.setSession(name) != null
-
         } catch (error: Exception) {
             Log.e(TAG, "Session setup failed", error)
             false
@@ -348,10 +373,14 @@ class OpenVpnVpnService : VpnService() {
 
             Log.i(TAG, "Android VPN interface established")
 
+            updateNotification("VPN tunnel established")
+            publishStatus(true, "VPN tunnel established")
+
             descriptor.detachFd()
 
         } catch (error: Exception) {
             Log.e(TAG, "VPN establish failed", error)
+            publishStatus(false, "VPN tunnel establishment failed")
             -1
         }
     }
@@ -359,7 +388,6 @@ class OpenVpnVpnService : VpnService() {
     fun nativeProtectSocket(fd: Int): Boolean {
         return try {
             protect(fd)
-
         } catch (error: Exception) {
             Log.e(TAG, "Socket protection failed", error)
             false
@@ -372,6 +400,8 @@ class OpenVpnVpnService : VpnService() {
         connected = false
 
         Log.i(TAG, "Native tunnel teardown")
+
+        publishStatus(false, "VPN tunnel disconnected")
     }
 
     override fun onDestroy() {
