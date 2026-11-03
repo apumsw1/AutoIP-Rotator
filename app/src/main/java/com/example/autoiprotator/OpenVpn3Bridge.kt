@@ -4,7 +4,6 @@ package com.example.autoiprotator
 object OpenVpn3Bridge {
 
     private const val LIBRARY_NAME = "openvpn3_jni"
-
     private const val SUCCESS = 0
 
     @Volatile
@@ -18,10 +17,14 @@ object OpenVpn3Bridge {
         }
     }
 
+    /*
+     * OpenVPN 3 will request Android TUN setup
+     * through callbacks on the VpnService instance.
+     */
     @JvmStatic
     external fun nativeStart(
         config: String,
-        tunFd: Int
+        service: OpenVpnVpnService
     ): Int
 
     @JvmStatic
@@ -30,47 +33,45 @@ object OpenVpn3Bridge {
     @JvmStatic
     external fun nativeGetStatus(): String
 
-    fun start(config: String, tunFd: Int): Result<Int> =
-        runCatching {
-            require(config.isNotBlank()) {
-                "OpenVPN configuration is empty."
-            }
+    fun start(
+        config: String,
+        service: OpenVpnVpnService
+    ): Result<Int> = runCatching {
 
-            require(tunFd >= 0) {
-                "Invalid VPN tunnel descriptor."
-            }
-
-            loadNativeLibrary()
-
-            val result = nativeStart(config, tunFd)
-
-            check(result == SUCCESS) {
-                val detail = runCatching {
-                    nativeGetStatus()
-                }.getOrDefault("Unknown native error")
-
-                "OpenVPN failed ($result): $detail"
-            }
-
-            result
+        require(config.isNotBlank()) {
+            "OpenVPN configuration is empty."
         }
 
-    fun stop(): Result<Int> =
-        runCatching {
-            loadNativeLibrary()
+        loadNativeLibrary()
 
-            val result = nativeStop()
+        val result = nativeStart(config, service)
 
-            check(result == SUCCESS) {
-                "OpenVPN stop failed: $result"
-            }
+        check(result == SUCCESS) {
+            val detail = runCatching {
+                nativeGetStatus()
+            }.getOrDefault("Unknown native error")
 
-            result
+            "OpenVPN failed ($result): $detail"
         }
 
-    fun status(): Result<String> =
-        runCatching {
-            loadNativeLibrary()
-            nativeGetStatus()
+        result
+    }
+
+    fun stop(): Result<Int> = runCatching {
+
+        loadNativeLibrary()
+
+        val result = nativeStop()
+
+        check(result == SUCCESS) {
+            "OpenVPN stop failed ($result): ${nativeGetStatus()}"
         }
+
+        result
+    }
+
+    fun status(): Result<String> = runCatching {
+        loadNativeLibrary()
+        nativeGetStatus()
+    }
 }
