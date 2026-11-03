@@ -24,26 +24,38 @@ jobs:
           - abi: arm64-v8a
             rust_target: aarch64-linux-android
             clang_prefix: aarch64-linux-android
+
           - abi: armeabi-v7a
             rust_target: armv7-linux-androideabi
             clang_prefix: armv7a-linux-androideabi
+
           - abi: x86
             rust_target: i686-linux-android
             clang_prefix: i686-linux-android
+
           - abi: x86_64
             rust_target: x86_64-linux-android
             clang_prefix: x86_64-linux-android
 
     steps:
       - name: Install native build tools
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential cmake clang libclang-dev
+            build-essential \
+            cmake \
+            clang \
+            libclang-dev \
+            pkg-config \
+            git \
+            curl
 
       - name: Locate Android SDK
         shell: bash
         run: |
+          set -euo pipefail
+
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
 
           if [ ! -d "$SDK_ROOT/cmdline-tools" ]; then
@@ -55,7 +67,7 @@ jobs:
             -type f -name sdkmanager | sort -V | tail -n 1)"
 
           if [ -z "$SDKMANAGER" ]; then
-            echo "sdkmanager was not found."
+            echo "ERROR: sdkmanager was not found"
             exit 1
           fi
 
@@ -63,21 +75,30 @@ jobs:
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
 
+          echo "Android SDK located successfully."
+          "$SDKMANAGER" --version
+
       - name: Install Android NDK
         shell: bash
         run: |
+          set -euo pipefail
+
           yes | "$SDKMANAGER" --licenses || true
+
           "$SDKMANAGER" "ndk;27.2.12479018"
 
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          NDK_BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
-          if [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
-            echo "NDK installation could not be verified."
+          if [ ! -x "$NDK_BIN/llvm-ar" ]; then
+            echo "ERROR: NDK installation could not be verified."
             exit 1
           fi
 
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
+
+          echo "Android NDK installed successfully."
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -87,11 +108,14 @@ jobs:
       - name: Check out OpenVPN 3 Rust bindings
         shell: bash
         run: |
+          set -euo pipefail
+
           git clone --recurse-submodules \
             https://github.com/networks-rs/openvpn-connect-rs.git \
             "$RUNNER_TEMP/openvpn-connect-rs"
 
           cd "$RUNNER_TEMP/openvpn-connect-rs"
+
           git submodule update --init --recursive
 
       - name: Build OpenVPN Core for Android ABI
@@ -127,8 +151,15 @@ jobs:
               ;;
           esac
 
-          test -x "$LINKER"
-          test -x "$CXX"
+          if [ ! -x "$LINKER" ]; then
+            echo "ERROR: Android linker not found: $LINKER"
+            exit 1
+          fi
+
+          if [ ! -x "$CXX" ]; then
+            echo "ERROR: Android C++ compiler not found: $CXX"
+            exit 1
+          fi
 
           echo "CARGO_TARGET_${TARGET_ENV^^}_LINKER=$LINKER" >> "$GITHUB_ENV"
           echo "CC_${TARGET_ENV}=$LINKER" >> "$GITHUB_ENV"
@@ -142,7 +173,8 @@ jobs:
           rustc --version
           cargo --version
 
-          cargo build --release \
+          cargo build \
+            --release \
             -p openvpn-connect \
             --target "$RUST_TARGET" \
             --features vendor
