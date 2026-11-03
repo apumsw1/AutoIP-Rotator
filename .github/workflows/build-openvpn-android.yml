@@ -19,8 +19,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            libclang-dev \
+            build-essential \
+            pkg-config
 
       - name: Install Android NDK
         uses: nttld/setup-ndk@v1
@@ -37,27 +45,37 @@ jobs:
             x86_64-linux-android
 
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk
+        run: cargo install cargo-ndk --locked
 
       - name: Build OpenVPN JNI
         working-directory: native/openvpn-jni
+        env:
+          ANDROID_PLATFORM: android-24
         run: |
           cargo ndk \
+            -p 24 \
             -t arm64-v8a \
             -t armeabi-v7a \
             -t x86_64 \
             -o ../../app/src/main/jniLibs \
             build --release
 
+      - name: Verify native libraries
+        run: |
+          find app/src/main/jniLibs -type f -name "*.so"
+          test -f app/src/main/jniLibs/arm64-v8a/libopenvpn3_jni.so
+
       - name: Commit native libraries
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add app/src/main/jniLibs/
+
           if git diff --cached --quiet; then
             echo "No native library changes."
           else
-            git commit -m "Add compiled OpenVPN Android native libraries"
+            git commit -m "Build OpenVPN Android native libraries"
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
 
