@@ -24,23 +24,29 @@ jobs:
           - abi: arm64-v8a
             rust_target: aarch64-linux-android
             clang_prefix: aarch64-linux-android
+            target_env: aarch64_linux_android
 
           - abi: armeabi-v7a
             rust_target: armv7-linux-androideabi
             clang_prefix: armv7a-linux-androideabi
+            target_env: armv7_linux_androideabi
 
           - abi: x86
             rust_target: i686-linux-android
             clang_prefix: i686-linux-android
+            target_env: i686_linux_android
 
           - abi: x86_64
             rust_target: x86_64-linux-android
             clang_prefix: x86_64-linux-android
+            target_env: x86_64_linux_android
 
     steps:
       - name: Install native build tools
         shell: bash
         run: |
+          set -euo pipefail
+
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -51,24 +57,52 @@ jobs:
             git \
             curl
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Locate preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" \
+              -type f -name sdkmanager 2>/dev/null \
+              | sort -V | tail -n 1)"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "ERROR: Android SDK sdkmanager not found."
+            exit 1
+          fi
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+
+          echo "Android SDK found."
+          "$SDKMANAGER" --version
 
       - name: Install Android NDK
         shell: bash
         run: |
           set -euo pipefail
 
-          yes | sdkmanager --licenses || true
-          sdkmanager "ndk;27.2.12479018"
+          NDK_VERSION="27.2.12479018"
+          NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
 
-          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" "ndk;$NDK_VERSION"
+
           NDK_BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
           test -x "$NDK_BIN/llvm-ar"
+          test -x "$NDK_BIN/llvm-ranlib"
 
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
+
+          echo "NDK installed and verified."
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -92,6 +126,7 @@ jobs:
         env:
           RUST_TARGET: ${{ matrix.rust_target }}
           CLANG_PREFIX: ${{ matrix.clang_prefix }}
+          TARGET_ENV: ${{ matrix.target_env }}
         run: |
           set -euo pipefail
 
@@ -99,41 +134,35 @@ jobs:
           API=24
 
           LINKER="$NDK_BIN/$CLANG_PREFIX$API-clang"
-          CXX="$NDK_BIN/$CLANG_PREFIX$API-clang++"
-
-          case "$RUST_TARGET" in
-            aarch64-linux-android)
-              TARGET_ENV=aarch64_linux_android
-              ;;
-            armv7-linux-androideabi)
-              TARGET_ENV=armv7_linux_androideabi
-              ;;
-            i686-linux-android)
-              TARGET_ENV=i686_linux_android
-              ;;
-            x86_64-linux-android)
-              TARGET_ENV=x86_64_linux_android
-              ;;
-            *)
-              echo "Unsupported Rust target: $RUST_TARGET"
-              exit 1
-              ;;
-          esac
+          CXX_COMPILER="$NDK_BIN/$CLANG_PREFIX$API-clang++"
+          AR_TOOL="$NDK_BIN/llvm-ar"
+          RANLIB_TOOL="$NDK_BIN/llvm-ranlib"
 
           test -x "$LINKER"
-          test -x "$CXX"
+          test -x "$CXX_COMPILER"
+          test -x "$AR_TOOL"
+          test -x "$RANLIB_TOOL"
 
-          export "CARGO_TARGET_${TARGET_ENV^^}_LINKER=$LINKER"
+          TARGET_UPPER="${TARGET_ENV^^}"
+
+          export "CARGO_TARGET_${TARGET_UPPER}_LINKER=$LINKER"
+          export "CC_${TARGET_ENV}=$LINKER"
+          export "CXX_${TARGET_ENV}=$CXX_COMPILER"
+          export "AR_${TARGET_ENV}=$AR_TOOL"
+          export "RANLIB_${TARGET_ENV}=$RANLIB_TOOL"
+
           export CC="$LINKER"
-          export CXX="$CXX"
-          export AR="$NDK_BIN/llvm-ar"
-          export RANLIB="$NDK_BIN/llvm-ranlib"
+          export CXX="$CXX_COMPILER"
+          export AR="$AR_TOOL"
+          export RANLIB="$RANLIB_TOOL"
           export ANDROID_PLATFORM="android-$API"
 
           cd "$RUNNER_TEMP/openvpn-connect-rs"
 
+          echo "ABI: ${{ matrix.abi }}"
           echo "Rust target: $RUST_TARGET"
-          echo "Android linker: $LINKER"
+          echo "C compiler: $LINKER"
+          echo "C++ compiler: $CXX_COMPILER"
 
           rustc --version
           cargo --version
@@ -150,7 +179,6 @@ jobs:
         with:
           name: openvpn-core-${{ matrix.abi }}
           path: |
-            ${{ runner.temp }}/openvpn-connect-rs/target/${{ matrix.rust_target }}/release/deps/*.rlib
-            ${{ runner.temp }}/openvpn-connect-rs/target/${{ matrix.rust_target }}/release/build/
+            ${{ runner.temp }}/openvpn-connect-rs/target/${{ matrix.rust_target }}/release/
           if-no-files-found: warn
           retention-days: 7
