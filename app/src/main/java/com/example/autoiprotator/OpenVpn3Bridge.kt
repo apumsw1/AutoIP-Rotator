@@ -1,10 +1,8 @@
-
 package com.example.autoiprotator
 
 object OpenVpn3Bridge {
 
     private const val LIBRARY_NAME = "openvpn3_jni"
-    private const val SUCCESS = 0
 
     @Volatile
     private var libraryLoaded = false
@@ -17,10 +15,6 @@ object OpenVpn3Bridge {
         }
     }
 
-    /*
-     * OpenVPN 3 will request Android TUN setup
-     * through callbacks on the VpnService instance.
-     */
     @JvmStatic
     external fun nativeStart(
         config: String,
@@ -37,34 +31,28 @@ object OpenVpn3Bridge {
         config: String,
         service: OpenVpnVpnService
     ): Result<Int> = runCatching {
-
         require(config.isNotBlank()) {
-            "OpenVPN configuration is empty."
+            "OpenVPN configuration is empty"
         }
 
         loadNativeLibrary()
 
         val result = nativeStart(config, service)
 
-        check(result == SUCCESS) {
-            val detail = runCatching {
-                nativeGetStatus()
-            }.getOrDefault("Unknown native error")
-
-            "OpenVPN failed ($result): $detail"
+        check(result == 0) {
+            "OpenVPN start failed ($result): ${nativeGetStatus()}"
         }
 
         result
     }
 
     fun stop(): Result<Int> = runCatching {
-
         loadNativeLibrary()
 
         val result = nativeStop()
 
-        check(result == SUCCESS) {
-            "OpenVPN stop failed ($result): ${nativeGetStatus()}"
+        check(result == 0) {
+            "OpenVPN stop failed ($result)"
         }
 
         result
