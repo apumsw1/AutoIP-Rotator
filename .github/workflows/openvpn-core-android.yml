@@ -123,6 +123,7 @@ jobs:
         env:
           RUST_TARGET: ${{ matrix.rust_target }}
           CLANG_PREFIX: ${{ matrix.clang_prefix }}
+        
         run: |
           set -euo pipefail
 
@@ -146,29 +147,25 @@ jobs:
               TARGET_ENV=x86_64_linux_android
               ;;
             *)
-              echo "Unsupported Rust target: $RUST_TARGET"
+              echo "Unsupported target: $RUST_TARGET"
               exit 1
               ;;
           esac
 
-          if [ ! -x "$LINKER" ]; then
-            echo "ERROR: Android linker not found: $LINKER"
-            exit 1
-          fi
+          test -x "$LINKER"
+          test -x "$CXX"
 
-          if [ ! -x "$CXX" ]; then
-            echo "ERROR: Android C++ compiler not found: $CXX"
-            exit 1
-          fi
-
-          echo "CARGO_TARGET_${TARGET_ENV^^}_LINKER=$LINKER" >> "$GITHUB_ENV"
-          echo "CC_${TARGET_ENV}=$LINKER" >> "$GITHUB_ENV"
-          echo "CXX_${TARGET_ENV}=$CXX" >> "$GITHUB_ENV"
-          echo "AR_${TARGET_ENV}=$NDK_BIN/llvm-ar" >> "$GITHUB_ENV"
-          echo "RANLIB_${TARGET_ENV}=$NDK_BIN/llvm-ranlib" >> "$GITHUB_ENV"
-          echo "ANDROID_PLATFORM=android-$API" >> "$GITHUB_ENV"
+          export "CARGO_TARGET_${TARGET_ENV^^}_LINKER=$LINKER"
+          export "CC_${TARGET_ENV}=$LINKER"
+          export "CXX_${TARGET_ENV}=$CXX"
+          export "AR_${TARGET_ENV}=$NDK_BIN/llvm-ar"
+          export "RANLIB_${TARGET_ENV}=$NDK_BIN/llvm-ranlib"
+          export ANDROID_PLATFORM="android-$API"
 
           cd "$RUNNER_TEMP/openvpn-connect-rs"
+
+          echo "Target: $RUST_TARGET"
+          echo "Compiler: $LINKER"
 
           rustc --version
           cargo --version
@@ -178,14 +175,3 @@ jobs:
             -p openvpn-connect \
             --target "$RUST_TARGET" \
             --features vendor
-
-      - name: Upload Rust build output for inspection
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: openvpn-core-${{ matrix.abi }}
-          path: |
-            ${{ runner.temp }}/openvpn-connect-rs/target/${{ matrix.rust_target }}/release/deps/*.rlib
-            ${{ runner.temp }}/openvpn-connect-rs/target/${{ matrix.rust_target }}/release/build/
-          if-no-files-found: warn
-          retention-days: 7
