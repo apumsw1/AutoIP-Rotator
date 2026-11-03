@@ -1,6 +1,9 @@
-
 package com.example.autoiprotator
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
@@ -17,7 +20,10 @@ class OpenVpnVpnService : VpnService() {
             "com.example.autoiprotator.OPENVPN_DISCONNECT"
 
         const val EXTRA_CONFIG = "openvpn_config"
+
         private const val TAG = "AutoIPOpenVPN"
+        private const val CHANNEL_ID = "autoip_vpn_channel"
+        private const val NOTIFICATION_ID = 1001
     }
 
     @Volatile
@@ -26,19 +32,37 @@ class OpenVpnVpnService : VpnService() {
     @Volatile
     private var connected = false
 
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
+
     override fun onStartCommand(
         intent: Intent?,
         flags: Int,
         startId: Int
     ): Int {
+
         when (intent?.action) {
+
             ACTION_CONNECT -> {
                 val config =
                     intent.getStringExtra(EXTRA_CONFIG)
 
                 if (config.isNullOrBlank()) {
                     Log.e(TAG, "OpenVPN configuration is empty")
-                    stopSelf()
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
+
+                try {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        createNotification("Connecting to VPN Gate...")
+                    )
+                } catch (error: Exception) {
+                    Log.e(TAG, "Foreground start failed", error)
+                    stopSelf(startId)
                     return START_NOT_STICKY
                 }
 
@@ -47,6 +71,7 @@ class OpenVpnVpnService : VpnService() {
 
             ACTION_DISCONNECT -> {
                 disconnectVpn()
+                stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
@@ -54,48 +79,117 @@ class OpenVpnVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "AutoIP VPN Connection",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "VPN connection status"
+                setShowBadge(false)
+            }
+
+            val manager =
+                getSystemService(Context.NOTIFICATION_SERVICE)
+                        as NotificationManager
+
+            manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun createNotification(
+        message: String
+    ): Notification {
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
+            Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle("AutoIP Rotator")
+                .setContentText(message)
+                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setOngoing(true)
+                .setCategory(Notification.CATEGORY_SERVICE)
+                .build()
+
+        } else {
+
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setContentTitle("AutoIP Rotator")
+                .setContentText(message)
+                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setOngoing(true)
+                .build()
+        }
+    }
+
+    private fun updateNotification(message: String) {
+        val manager =
+            getSystemService(Context.NOTIFICATION_SERVICE)
+                    as NotificationManager
+
+        manager.notify(
+            NOTIFICATION_ID,
+            createNotification(message)
+        )
+    }
+
     private fun connectVpn(config: String) {
+
         Thread({
+
             try {
-                disconnectVpn()
+                disconnectNativeOnly()
 
                 val result =
                     OpenVpn3Bridge.start(config, this)
 
-                result.onFailure {
-                    Log.e(TAG, "OpenVPN start failed", it)
+                result.onSuccess {
+                    Log.i(TAG, "OpenVPN engine started")
+                    updateNotification("VPN Gate connection started")
+                }
+
+                result.onFailure { error ->
+                    Log.e(TAG, "OpenVPN start failed", error)
+                    disconnectVpn()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
 
             } catch (error: Exception) {
                 Log.e(TAG, "OpenVPN connection error", error)
+                disconnectVpn()
+                stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
+
         }, "OpenVPN-Starter").start()
     }
 
-    private fun disconnectVpn() {
+    private fun disconnectNativeOnly() {
         connected = false
         vpnBuilder = null
 
         runCatching {
             OpenVpn3Bridge.stop()
         }
-
-        Log.i(TAG, "VPN disconnect requested")
     }
 
-    /*
-     * The following methods are called from Rust JNI.
-     * OpenVPN Core controls the tunnel configuration.
-     */
+    private fun disconnectVpn() {
+        disconnectNativeOnly()
+        Log.i(TAG, "VPN disconnect requested")
+    }
 
     @Synchronized
     fun nativeNewTunnel(): Boolean {
         return try {
             vpnBuilder = Builder()
                 .setSession("AutoIP Rotator")
+
             true
+
         } catch (error: Exception) {
             Log.e(TAG, "Tunnel creation failed", error)
             false
@@ -126,6 +220,7 @@ class OpenVpnVpnService : VpnService() {
             require(prefix in 0..if (ipv6) 128 else 32)
 
             vpnBuilder?.addAddress(address, prefix) != null
+
         } catch (error: Exception) {
             Log.e(TAG, "Add address failed", error)
             false
@@ -154,6 +249,7 @@ class OpenVpnVpnService : VpnService() {
             }
 
             true
+
         } catch (error: Exception) {
             Log.e(TAG, "Default route setup failed", error)
             false
@@ -169,6 +265,7 @@ class OpenVpnVpnService : VpnService() {
     ): Boolean {
         return try {
             vpnBuilder?.addRoute(address, prefix) != null
+
         } catch (error: Exception) {
             Log.e(TAG, "Add route failed", error)
             false
@@ -192,6 +289,7 @@ class OpenVpnVpnService : VpnService() {
             }
 
             true
+
         } catch (error: Exception) {
             Log.e(TAG, "Exclude route failed", error)
             false
@@ -204,6 +302,7 @@ class OpenVpnVpnService : VpnService() {
             if (address.isBlank()) return false
 
             vpnBuilder?.addDnsServer(address) != null
+
         } catch (error: Exception) {
             Log.e(TAG, "DNS setup failed", error)
             false
@@ -216,6 +315,7 @@ class OpenVpnVpnService : VpnService() {
             if (mtu !in 576..9000) return false
 
             vpnBuilder?.setMtu(mtu) != null
+
         } catch (error: Exception) {
             Log.e(TAG, "MTU setup failed", error)
             false
@@ -228,6 +328,7 @@ class OpenVpnVpnService : VpnService() {
             if (name.isBlank()) return false
 
             vpnBuilder?.setSession(name) != null
+
         } catch (error: Exception) {
             Log.e(TAG, "Session setup failed", error)
             false
@@ -258,6 +359,7 @@ class OpenVpnVpnService : VpnService() {
     fun nativeProtectSocket(fd: Int): Boolean {
         return try {
             protect(fd)
+
         } catch (error: Exception) {
             Log.e(TAG, "Socket protection failed", error)
             false
@@ -268,11 +370,13 @@ class OpenVpnVpnService : VpnService() {
     fun nativeTeardown(disconnect: Boolean) {
         vpnBuilder = null
         connected = false
+
         Log.i(TAG, "Native tunnel teardown")
     }
 
     override fun onDestroy() {
         disconnectVpn()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 }
