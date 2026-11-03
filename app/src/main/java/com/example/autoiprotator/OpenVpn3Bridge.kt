@@ -1,31 +1,23 @@
 
 package com.example.autoiprotator
 
-/**
- * JNI entry point for the OpenVPN 3 native library.
- *
- * The matching native JNI implementation and Android TUN integration
- * must be built before start() can establish a VPN connection.
- */
 object OpenVpn3Bridge {
 
     private const val LIBRARY_NAME = "openvpn3_jni"
+
+    private const val SUCCESS = 0
 
     @Volatile
     private var libraryLoaded = false
 
     @Synchronized
     private fun loadNativeLibrary() {
-        if (libraryLoaded) return
-
-        System.loadLibrary(LIBRARY_NAME)
-        libraryLoaded = true
+        if (!libraryLoaded) {
+            System.loadLibrary(LIBRARY_NAME)
+            libraryLoaded = true
+        }
     }
 
-    /**
-     * Starts OpenVPN using a complete .ovpn configuration.
-     * Requires the native JNI library and TUN callbacks.
-     */
     @JvmStatic
     external fun nativeStart(
         config: String,
@@ -43,18 +35,37 @@ object OpenVpn3Bridge {
             require(config.isNotBlank()) {
                 "OpenVPN configuration is empty."
             }
+
             require(tunFd >= 0) {
-                "A valid Android VPN tunnel file descriptor is required."
+                "Invalid VPN tunnel descriptor."
             }
 
             loadNativeLibrary()
-            nativeStart(config, tunFd)
+
+            val result = nativeStart(config, tunFd)
+
+            check(result == SUCCESS) {
+                val detail = runCatching {
+                    nativeGetStatus()
+                }.getOrDefault("Unknown native error")
+
+                "OpenVPN failed ($result): $detail"
+            }
+
+            result
         }
 
     fun stop(): Result<Int> =
         runCatching {
             loadNativeLibrary()
-            nativeStop()
+
+            val result = nativeStop()
+
+            check(result == SUCCESS) {
+                "OpenVPN stop failed: $result"
+            }
+
+            result
         }
 
     fun status(): Result<String> =
