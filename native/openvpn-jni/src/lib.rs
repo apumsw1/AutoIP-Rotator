@@ -3,11 +3,8 @@ use jni::objects::{JClass, JString};
 use jni::sys::{jint, jstring};
 use jni::JNIEnv;
 
-/// OpenVPN JNI bridge scaffold.
-/// The OpenVPN client and Android TUN callbacks
-/// must be integrated before a VPN connection can work.
-
 const ERR_NOT_IMPLEMENTED: jint = -10;
+
 const STATUS: &str =
     "OpenVPN engine is not integrated yet. No VPN connection is active.";
 
@@ -18,7 +15,8 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStart
     config: JString,
     tun_fd: jint,
 ) -> jint {
-    let profile = match env.get_string(&config) {
+
+    let profile: String = match env.get_string(&config) {
         Ok(value) => value.into(),
         Err(_) => return -1,
     };
@@ -27,9 +25,8 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStart
         return -2;
     }
 
-    // TODO: Initialize the OpenVPN 3 client,
-    // attach Android VpnService TUN callbacks,
-    // and start the VPN session here.
+    // OpenVPN session and Android TUN integration
+    // are not implemented yet.
     ERR_NOT_IMPLEMENTED
 }
 
@@ -38,7 +35,6 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStop(
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
-    // TODO: Stop the real OpenVPN client session.
     ERR_NOT_IMPLEMENTED
 }
 
