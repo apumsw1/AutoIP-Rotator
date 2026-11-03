@@ -38,16 +38,46 @@ jobs:
       - name: Install native build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake clang libclang-dev
+          sudo apt-get install -y \
+            build-essential cmake clang libclang-dev
 
-      - name: Set up Android SDK and NDK
-        uses: android-actions/setup-android@v3
+      - name: Locate Android SDK
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+
+          if [ ! -d "$SDK_ROOT/cmdline-tools" ]; then
+            echo "Android SDK command-line tools not found: $SDK_ROOT"
+            exit 1
+          fi
+
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" \
+            -type f -name sdkmanager | sort -V | tail -n 1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager was not found."
+            exit 1
+          fi
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
 
       - name: Install Android NDK
+        shell: bash
         run: |
-          sdkmanager "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" "ndk;27.2.12479018"
+
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+
+          if [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
+            echo "NDK installation could not be verified."
+            exit 1
+          fi
+
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -55,41 +85,70 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - name: Check out OpenVPN 3 Rust bindings
+        shell: bash
         run: |
-          git clone --recurse-submodules https://github.com/networks-rs/openvpn-connect-rs.git "$RUNNER_TEMP/openvpn-connect-rs"
+          git clone --recurse-submodules \
+            https://github.com/networks-rs/openvpn-connect-rs.git \
+            "$RUNNER_TEMP/openvpn-connect-rs"
+
           cd "$RUNNER_TEMP/openvpn-connect-rs"
           git submodule update --init --recursive
 
       - name: Build OpenVPN Core for Android ABI
+        shell: bash
         env:
           RUST_TARGET: ${{ matrix.rust_target }}
           CLANG_PREFIX: ${{ matrix.clang_prefix }}
         run: |
+          set -euo pipefail
+
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           API=24
+
           LINKER="$NDK_BIN/$CLANG_PREFIX$API-clang"
           CXX="$NDK_BIN/$CLANG_PREFIX$API-clang++"
-          AR="$NDK_BIN/llvm-ar"
-          RANLIB="$NDK_BIN/llvm-ranlib"
 
           case "$RUST_TARGET" in
-            aarch64-linux-android) TARGET_ENV=aarch64_linux_android ;;
-            armv7-linux-androideabi) TARGET_ENV=armv7_linux_androideabi ;;
-            i686-linux-android) TARGET_ENV=i686_linux_android ;;
-            x86_64-linux-android) TARGET_ENV=x86_64_linux_android ;;
+            aarch64-linux-android)
+              TARGET_ENV=aarch64_linux_android
+              ;;
+            armv7-linux-androideabi)
+              TARGET_ENV=armv7_linux_androideabi
+              ;;
+            i686-linux-android)
+              TARGET_ENV=i686_linux_android
+              ;;
+            x86_64-linux-android)
+              TARGET_ENV=x86_64_linux_android
+              ;;
+            *)
+              echo "Unsupported Rust target: $RUST_TARGET"
+              exit 1
+              ;;
           esac
+
+          test -x "$LINKER"
+          test -x "$CXX"
 
           echo "CARGO_TARGET_${TARGET_ENV^^}_LINKER=$LINKER" >> "$GITHUB_ENV"
           echo "CC_${TARGET_ENV}=$LINKER" >> "$GITHUB_ENV"
           echo "CXX_${TARGET_ENV}=$CXX" >> "$GITHUB_ENV"
-          echo "AR_${TARGET_ENV}=$AR" >> "$GITHUB_ENV"
-          echo "RANLIB_${TARGET_ENV}=$RANLIB" >> "$GITHUB_ENV"
+          echo "AR_${TARGET_ENV}=$NDK_BIN/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB_${TARGET_ENV}=$NDK_BIN/llvm-ranlib" >> "$GITHUB_ENV"
           echo "ANDROID_PLATFORM=android-$API" >> "$GITHUB_ENV"
 
           cd "$RUNNER_TEMP/openvpn-connect-rs"
-          cargo build --release -p openvpn-connect --target "$RUST_TARGET" --features vendor
+
+          rustc --version
+          cargo --version
+
+          cargo build --release \
+            -p openvpn-connect \
+            --target "$RUST_TARGET" \
+            --features vendor
 
       - name: Upload Rust build output for inspection
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: openvpn-core-${{ matrix.abi }}
