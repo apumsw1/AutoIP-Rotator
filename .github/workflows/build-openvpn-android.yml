@@ -1,0 +1,54 @@
+
+name: Build OpenVPN Android
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "native/openvpn-jni/**"
+      - ".github/workflows/build-openvpn-android.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build OpenVPN JNI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+          add-to-path: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >
+            aarch64-linux-android
+            armv7-linux-androideabi
+            x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Build OpenVPN JNI
+        working-directory: native/openvpn-jni
+        run: |
+          cargo ndk \
+            -t arm64-v8a \
+            -t armeabi-v7a \
+            -t x86_64 \
+            -o ../../app/src/main/jniLibs \
+            build --release
+
+      - name: Upload native libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: openvpn-android-libraries
+          path: app/src/main/jniLibs/
