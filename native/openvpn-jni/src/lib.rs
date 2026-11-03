@@ -6,7 +6,7 @@ use openvpn_connect::{
     Client, Config, DnsOptions, Event, EventHandler, TunBuilder,
 };
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 
 static CLIENT: OnceLock<Mutex<Option<Client>>> = OnceLock::new();
@@ -28,7 +28,7 @@ fn status_store() -> &'static Mutex<String> {
 
 #[derive(Clone)]
 struct AndroidCallbacks {
-    vm: JavaVM,
+    vm: Arc<JavaVM>,
     service: GlobalRef,
 }
 
@@ -109,11 +109,17 @@ impl TunBuilder for AndroidTunnel {
 
         let object = JObject::from(address);
 
-        self.callbacks.call_bool(
+        env.call_method(
+            self.callbacks.service.as_obj(),
             "nativeSetRemoteAddress",
             "(Ljava/lang/String;Z)Z",
-            &[JValue::Object(&object), JValue::Bool(ipv6 as u8)],
+            &[
+                JValue::Object(&object),
+                JValue::Bool(ipv6 as u8),
+            ],
         )
+        .and_then(|v| v.z())
+        .unwrap_or(false)
     }
 
     fn add_address(
@@ -139,7 +145,8 @@ impl TunBuilder for AndroidTunnel {
         let address = JObject::from(address);
         let gateway = JObject::from(gateway);
 
-        self.callbacks.call_bool(
+        env.call_method(
+            self.callbacks.service.as_obj(),
             "nativeAddAddress",
             "(Ljava/lang/String;ILjava/lang/String;ZZ)Z",
             &[
@@ -150,6 +157,8 @@ impl TunBuilder for AndroidTunnel {
                 JValue::Bool(net30 as u8),
             ],
         )
+        .and_then(|v| v.z())
+        .unwrap_or(false)
     }
 
     fn set_route_metric_default(&self, metric: i32) -> bool {
@@ -189,7 +198,8 @@ impl TunBuilder for AndroidTunnel {
 
         let address = JObject::from(address);
 
-        self.callbacks.call_bool(
+        env.call_method(
+            self.callbacks.service.as_obj(),
             "nativeAddRoute",
             "(Ljava/lang/String;IIZ)Z",
             &[
@@ -199,6 +209,8 @@ impl TunBuilder for AndroidTunnel {
                 JValue::Bool(ipv6 as u8),
             ],
         )
+        .and_then(|v| v.z())
+        .unwrap_or(false)
     }
 
     fn exclude_route(
@@ -218,7 +230,8 @@ impl TunBuilder for AndroidTunnel {
 
         let address = JObject::from(address);
 
-        self.callbacks.call_bool(
+        env.call_method(
+            self.callbacks.service.as_obj(),
             "nativeExcludeRoute",
             "(Ljava/lang/String;IIZ)Z",
             &[
@@ -228,6 +241,8 @@ impl TunBuilder for AndroidTunnel {
                 JValue::Bool(ipv6 as u8),
             ],
         )
+        .and_then(|v| v.z())
+        .unwrap_or(false)
     }
 
     fn set_dns_options(&self, dns: &DnsOptions) -> bool {
@@ -274,34 +289,7 @@ impl TunBuilder for AndroidTunnel {
     }
 }
 
-impl EventHandler for AndroidCallbacks {
-    fn event(&self, event: Event) {
-        set_status(format!("{}: {}", event.name, event.info));
-    }
-
-    fn log(&self, text: &str) {
-        set_status(text.to_string());
-    }
-
-    fn socket_protect(&self, socket: isize, _remote: &str, _ipv6: bool) -> bool {
-        self.call_bool(
-            "nativeProtectSocket",
-            "(I)Z",
-            &[JValue::Int(socket as i32)],
-        )
-    }
-
-    fn tun_builder(&self) -> Option<&dyn TunBuilder> {
-        None
-    }
-}
-
-struct AndroidEventHandler {
-    callbacks: AndroidCallbacks,
-    tunnel: AndroidTunnel,
-}
-
-impl EventHandler for AndroidEventHandler {
+impl EventHandler for AndroidTunnelHandler {
     fn event(&self, event: Event) {
         set_status(format!("{}: {}", event.name, event.info));
     }
@@ -321,6 +309,11 @@ impl EventHandler for AndroidEventHandler {
     fn tun_builder(&self) -> Option<&dyn TunBuilder> {
         Some(&self.tunnel)
     }
+}
+
+struct AndroidTunnelHandler {
+    callbacks: AndroidCallbacks,
+    tunnel: AndroidTunnel,
 }
 
 #[no_mangle]
@@ -354,7 +347,7 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStart
     };
 
     let callbacks = AndroidCallbacks {
-        vm,
+        vm: Arc::new(vm),
         service: global_service,
     };
 
@@ -362,7 +355,7 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStart
         callbacks: callbacks.clone(),
     };
 
-    let handler = AndroidEventHandler {
+    let handler = AndroidTunnelHandler {
         callbacks,
         tunnel,
     };
