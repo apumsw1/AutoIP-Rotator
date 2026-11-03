@@ -27,7 +27,8 @@ class MainActivity : Activity() {
     private lateinit var timerSpinner: Spinner
     private lateinit var personalPanel: LinearLayout
     private lateinit var publicPanel: LinearLayout
-
+private lateinit var connectionTimeLabel: TextView
+private lateinit var rotationCountdownLabel: TextView
     private lateinit var publicStatus: TextView
     private lateinit var serverSpinner: Spinner
     private lateinit var serverDetails: TextView
