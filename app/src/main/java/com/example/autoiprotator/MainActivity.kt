@@ -1,3 +1,4 @@
+
 package com.example.autoiprotator
 
 import android.animation.ObjectAnimator
@@ -96,6 +97,7 @@ class MainActivity : Activity() {
     private val white = Color.rgb(235, 250, 255)
     private val muted = Color.rgb(150, 180, 195)
     private val warning = Color.rgb(255, 190, 50)
+    private val brandYellow = Color.rgb(255, 205, 70)
 
     companion object {
         private const val VPN_REQUEST = 4101
@@ -213,13 +215,14 @@ class MainActivity : Activity() {
             setPadding(dp(18), dp(14), dp(18), dp(24))
         }
 
-        // Smaller app title
         val logo = makeText("◈ AUTOIP ROTATOR ◈", 22f, cyan, true)
         root.addView(logo, fullWidth())
 
+        // Updated branding: yellow text
         root.addView(
-            makeText("CYBER VPN CONTROL CENTER", 10f, muted, true)
+            makeText("M'r ApurbA Creation", 10f, brandYellow, true)
         )
+
         root.addView(
             makeText("SYSTEM INITIALIZED  //  SECURE MODE", 9f, neon, true)
         )
@@ -256,7 +259,6 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
         }
 
-        // Smaller mode buttons; original colors preserved
         val personalTab = makeButton("PERSONAL VPN").apply {
             textSize = 12f
             setPadding(dp(6), dp(4), dp(6), dp(4))
@@ -483,8 +485,9 @@ class MainActivity : Activity() {
         publicPanel = card()
         publicPanel.visibility = View.GONE
 
+        // Removed the numeric prefix and slashes.
         publicPanel.addView(
-            makeText("02  //  PUBLIC VPN", 17f, cyan, true)
+            makeText("PUBLIC VPN", 17f, cyan, true)
         )
         publicPanel.addView(
             makeText(
@@ -503,7 +506,13 @@ class MainActivity : Activity() {
         )
         publicPanel.addView(publicStatus, fullWidth())
 
-        val refreshButton = makeButton("REFRESH FREE SERVERS")
+        // Slightly smaller refresh button.
+        val refreshButton = makeButton("REFRESH FREE SERVERS").apply {
+            textSize = 12f
+            minHeight = dp(38)
+            setPadding(dp(6), dp(2), dp(6), dp(2))
+        }
+
         refreshButton.setOnClickListener {
             loadPublicServers()
         }
@@ -542,6 +551,7 @@ class MainActivity : Activity() {
         )
         publicPanel.addView(serverDetails, fullWidth())
 
+        // Keep this warning: server discovery is not a working VPN tunnel.
         publicPanel.addView(
             makeText(
                 "SERVER DISCOVERY ONLY — OPENVPN ENGINE NOT INSTALLED",
@@ -551,15 +561,7 @@ class MainActivity : Activity() {
             )
         )
 
-        publicPanel.addView(
-            makeText(
-                "VPN Gate servers are volunteer-operated. " +
-                    "Availability and speed can change. " +
-                    "Do not treat an untrusted relay as private.",
-                10f,
-                muted
-            )
-        )
+        // Removed the extra bottom volunteer-relay disclaimer.
 
         root.addView(publicPanel, withBottomMargin(16))
     }
@@ -591,11 +593,48 @@ class MainActivity : Activity() {
                         "${server.speedMbps.toInt()} Mbps • $ping"
                 }
 
-                val adapter = ArrayAdapter(
+                // High-contrast cyan text on the server selector.
+                val adapter = object : ArrayAdapter<String>(
                     this,
                     android.R.layout.simple_spinner_item,
                     labels
-                )
+                ) {
+                    private fun styleServerLabel(view: View): View {
+                        (view as? TextView)?.apply {
+                            setTextColor(Color.rgb(125, 250, 255))
+                            textSize = 14f
+                            setPadding(dp(10), dp(4), dp(10), dp(4))
+                            maxLines = 1
+                            ellipsize =
+                                android.text.TextUtils.TruncateAt.END
+                        }
+                        return view
+                    }
+
+                    override fun getView(
+                        position: Int,
+                        convertView: View?,
+                        parent: ViewGroup
+                    ): View = styleServerLabel(
+                        super.getView(position, convertView, parent)
+                    )
+
+                    override fun getDropDownView(
+                        position: Int,
+                        convertView: View?,
+                        parent: ViewGroup
+                    ): View {
+                        val view = super.getDropDownView(
+                            position,
+                            convertView,
+                            parent
+                        )
+                        (view as? TextView)?.setBackgroundColor(
+                            Color.rgb(8, 30, 48)
+                        )
+                        return styleServerLabel(view)
+                    }
+                }
 
                 adapter.setDropDownViewResource(
                     android.R.layout.simple_spinner_dropdown_item
@@ -770,18 +809,6 @@ class MainActivity : Activity() {
             startActivityForResult(permission, VPN_REQUEST)
         } else {
             connectVpn()
-        }
-    }
-
-    private fun selectedReconnectIntervalMs(): Long {
-        return when (timerSpinner.selectedItemPosition) {
-            1 -> 5_000L
-            2 -> 10_000L
-            3 -> 30_000L
-            4 -> 60_000L
-            5 -> 120_000L
-            6 -> 300_000L
-            else -> 0L
         }
     }
 
