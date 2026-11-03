@@ -1,4 +1,3 @@
-
 package com.example.autoiprotator
 
 import android.app.Notification
@@ -10,6 +9,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import java.net.InetAddress
 
 class OpenVpnVpnService : VpnService() {
 
@@ -165,7 +165,6 @@ class OpenVpnVpnService : VpnService() {
                 result.onSuccess {
                     Log.i(TAG, "OpenVPN engine started")
 
-                    // Engine started does not mean tunnel connected.
                     updateNotification("Waiting for VPN tunnel...")
                     publishStatus(false, "Waiting for VPN tunnel...")
                 }
@@ -329,9 +328,11 @@ class OpenVpnVpnService : VpnService() {
         return try {
             if (address.isBlank()) return false
 
-            vpnBuilder?.addDnsServer(address) != null
+            val dnsAddress = InetAddress.getByName(address)
+
+            vpnBuilder?.addDnsServer(dnsAddress) != null
         } catch (error: Exception) {
-            Log.e(TAG, "DNS setup failed", error)
+            Log.e(TAG, "DNS setup failed: $address", error)
             false
         }
     }
