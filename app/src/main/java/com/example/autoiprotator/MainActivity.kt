@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
@@ -52,13 +53,13 @@ class MainActivity : Activity() {
     private var pulseAnimator: ObjectAnimator? = null
 
     private val timerOptions = arrayOf(
-        "∞ Unlimited — Stable IP",
-        "5 seconds — Auto Reconnect",
-        "10 seconds — Auto Reconnect",
-        "30 seconds — Auto Reconnect",
-        "1 minute — Auto Reconnect",
-        "2 minutes — Auto Reconnect",
-        "5 minutes — Auto Reconnect"
+        "Unlimited - Stable IP",
+        "5 seconds - Auto Reconnect",
+        "10 seconds - Auto Reconnect",
+        "30 seconds - Auto Reconnect",
+        "1 minute - Auto Reconnect",
+        "2 minutes - Auto Reconnect",
+        "5 minutes - Auto Reconnect"
     )
 
     private val bg = Color.rgb(4, 9, 18)
@@ -214,7 +215,7 @@ class MainActivity : Activity() {
         }
 
         val logo = makeText(
-            "◈ AUTOIP ROTATOR ◈",
+            "AUTOIP ROTATOR",
             24f,
             cyan,
             true
@@ -223,16 +224,7 @@ class MainActivity : Activity() {
         root.addView(logo, fullWidth())
 
         root.addView(
-            makeText("M'r ApurbA Creation", 13f, Color.YELLOW, true)
-        )
-
-        root.addView(
-            makeText(
-                "SECURE NETWORK CONNECTION",
-                10f,
-                neon,
-                true
-            ),
+            makeText("SECURE NETWORK CONNECTION", 11f, neon, true),
             bottomMargin(18)
         )
 
@@ -247,8 +239,6 @@ class MainActivity : Activity() {
             repeatCount = ValueAnimator.INFINITE
             start()
         }
-
-        // VPN mode tabs
 
         val tabRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -274,7 +264,7 @@ class MainActivity : Activity() {
 
         root.addView(tabRow, bottomMargin(15))
 
-        // Personal panel
+        // PERSONAL VPN PANEL
 
         personalPanel = card()
         personalPanel.visibility = View.GONE
@@ -300,13 +290,10 @@ class MainActivity : Activity() {
 
         personalPanel.addView(
             importButton,
-            fullWidth().apply {
-                topMargin = dp(12)
-                bottomMargin = dp(10)
-            }
+            bottomMargin(10)
         )
 
-        // Public panel
+        // PUBLIC VPN PANEL
 
         publicPanel = card()
 
@@ -316,23 +303,68 @@ class MainActivity : Activity() {
 
         publicPanel.addView(
             makeText(
-                "PUBLIC VPN CONNECTION",
-                11f,
-                muted,
+                "CREATE ACCOUNT OR SIGN IN",
+                12f,
+                white,
                 true
+            ),
+            bottomMargin(10)
+        )
+
+        val accountButtons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
+        val signUpButton = makeButton("SIGN UP", neon, cyan)
+        val loginButton = makeButton("LOGIN", cyan, neon)
+
+        signUpButton.setOnClickListener {
+            openProtonAccountPage(
+                "https://account.proton.me/signup"
+            )
+        }
+
+        loginButton.setOnClickListener {
+            openProtonAccountPage(
+                "https://account.proton.me/login"
+            )
+        }
+
+        accountButtons.addView(
+            signUpButton,
+            LinearLayout.LayoutParams(0, dp(50), 1f).apply {
+                marginEnd = dp(5)
+            }
+        )
+
+        accountButtons.addView(
+            loginButton,
+            LinearLayout.LayoutParams(0, dp(50), 1f).apply {
+                marginStart = dp(5)
+            }
+        )
+
+        publicPanel.addView(accountButtons, fullWidth())
+
+        publicPanel.addView(
+            makeText(
+                "Account setup opens on the official Proton website.",
+                10f,
+                muted
             )
         )
 
         root.addView(personalPanel, bottomMargin(15))
         root.addView(publicPanel, bottomMargin(15))
 
-        // One shared status panel
+        // STATUS PANEL
 
         val statusCard = card()
 
         status = makeText(
-            "● PUBLIC VPN STATUS: NOT CONNECTED",
-            17f,
+            "PUBLIC VPN STATUS: NOT CONNECTED",
+            16f,
             warning,
             true
         )
@@ -350,13 +382,13 @@ class MainActivity : Activity() {
 
         root.addView(statusCard, bottomMargin(15))
 
-        // One shared timer
+        // TIMER PANEL
 
         val timerCard = card()
 
         timerCard.addView(
             makeText(
-                "⟳ AUTO-RECONNECT INTERVAL",
+                "AUTO-RECONNECT INTERVAL",
                 16f,
                 cyan,
                 true
@@ -365,6 +397,7 @@ class MainActivity : Activity() {
 
         timerSpinner = Spinner(this)
         timerSpinner.adapter = createTimerAdapter()
+
         timerSpinner.background = makeGradient(
             Color.rgb(15, 55, 72),
             Color.rgb(8, 30, 48),
@@ -386,6 +419,7 @@ class MainActivity : Activity() {
 
         timerSpinner.onItemSelectedListener =
             object : AdapterView.OnItemSelectedListener {
+
                 override fun onItemSelected(
                     parent: AdapterView<*>?,
                     view: View?,
@@ -400,7 +434,7 @@ class MainActivity : Activity() {
                 ) = Unit
             }
 
-        // Exactly one Connect / Disconnect button
+        // CONNECT / DISCONNECT BUTTON
 
         mainConnectButton = makeButton(
             "CONNECT",
@@ -432,7 +466,7 @@ class MainActivity : Activity() {
 
         root.addView(
             makeText(
-                "NETWORK MONITOR  //  READY",
+                "NETWORK MONITOR READY",
                 14f,
                 neon,
                 true
@@ -441,7 +475,7 @@ class MainActivity : Activity() {
 
         root.addView(
             makeText(
-                "Auto IP Rotation for a Stable & Secure Connection",
+                "Auto IP Rotation for a Stable and Secure Connection",
                 11f,
                 muted
             )
@@ -458,10 +492,24 @@ class MainActivity : Activity() {
         scroll.addView(root)
         setContentView(scroll)
 
-        // Public VPN is selected automatically at startup.
-
         selectPublic()
-        animateEntry(publicPanel)
+    }
+
+    private fun openProtonAccountPage(url: String) {
+        try {
+            startActivity(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(url)
+                )
+            )
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Unable to open account page.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun createTimerAdapter(): ArrayAdapter<String> {
@@ -517,9 +565,9 @@ class MainActivity : Activity() {
         publicPanel.visibility = View.GONE
 
         status.text = if (connected) {
-            "● PERSONAL VPN STATUS: CONNECTED"
+            "PERSONAL VPN STATUS: CONNECTED"
         } else {
-            "● PERSONAL VPN STATUS: NOT CONNECTED"
+            "PERSONAL VPN STATUS: NOT CONNECTED"
         }
 
         status.setTextColor(if (connected) neon else warning)
@@ -542,7 +590,7 @@ class MainActivity : Activity() {
         personalPanel.visibility = View.GONE
         publicPanel.visibility = View.VISIBLE
 
-        status.text = "● PUBLIC VPN STATUS: NOT CONNECTED"
+        status.text = "PUBLIC VPN STATUS: NOT CONNECTED"
         status.setTextColor(warning)
 
         mainConnectButton.text = "CONNECT"
@@ -557,7 +605,7 @@ class MainActivity : Activity() {
     private fun connectPublicVpn() {
         Toast.makeText(
             this,
-            "Public VPN connection is not configured yet.",
+            "Public VPN tunnel integration is not ready yet.",
             Toast.LENGTH_LONG
         ).show()
     }
@@ -623,7 +671,7 @@ class MainActivity : Activity() {
             } catch (_: SecurityException) {
             }
 
-            status.text = "READING CONFIGURATION..."
+            status.text = "READING CONFIGURATION"
             status.setTextColor(warning)
             mainConnectButton.isEnabled = false
 
@@ -633,7 +681,9 @@ class MainActivity : Activity() {
                         contentResolver.openInputStream(uri)
                             ?.bufferedReader()
                             ?.use { it.readText() }
-                            ?: throw Exception("Could not read configuration.")
+                            ?: throw Exception(
+                                "Could not read configuration."
+                            )
 
                     require(
                         imported.contains("[Interface]") &&
@@ -646,14 +696,14 @@ class MainActivity : Activity() {
                         configText = imported
 
                         status.text =
-                            "● PERSONAL VPN CONFIGURATION READY"
+                            "PERSONAL VPN CONFIGURATION READY"
                         status.setTextColor(neon)
 
                         mainConnectButton.isEnabled = true
 
                         Toast.makeText(
                             this,
-                            "Configuration imported successfully",
+                            "Configuration imported successfully.",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -666,7 +716,7 @@ class MainActivity : Activity() {
 
                         Toast.makeText(
                             this,
-                            e.message ?: "Import failed",
+                            e.message ?: "Import failed.",
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -688,7 +738,7 @@ class MainActivity : Activity() {
         if (configText.isNullOrBlank()) {
             Toast.makeText(
                 this,
-                "Import your .conf file first",
+                "Import your .conf file first.",
                 Toast.LENGTH_SHORT
             ).show()
             return
@@ -782,7 +832,7 @@ class MainActivity : Activity() {
         val config = configText ?: return
 
         mainConnectButton.isEnabled = false
-        status.text = "CONNECTING PERSONAL VPN..."
+        status.text = "CONNECTING PERSONAL VPN"
         status.setTextColor(warning)
 
         executor.execute {
@@ -790,16 +840,22 @@ class MainActivity : Activity() {
                 engine.connect(config)
 
                 runOnUiThread {
-                    connected = true
+                    connected = engine.isConnected()
 
-                    status.text =
-                        "● PERSONAL VPN STATUS: CONNECTED"
-                    status.setTextColor(neon)
+                    if (connected) {
+                        status.text =
+                            "PERSONAL VPN STATUS: CONNECTED"
+                        status.setTextColor(neon)
 
-                    mainConnectButton.text = "DISCONNECT"
-                    mainConnectButton.isEnabled = true
+                        mainConnectButton.text = "DISCONNECT"
+                        mainConnectButton.isEnabled = true
 
-                    startConnectionClock()
+                        startConnectionClock()
+                    } else {
+                        throw IllegalStateException(
+                            "VPN tunnel is not active."
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
@@ -817,7 +873,7 @@ class MainActivity : Activity() {
 
                     Toast.makeText(
                         this,
-                        e.message ?: "VPN connection failed",
+                        e.message ?: "VPN connection failed.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -835,7 +891,7 @@ class MainActivity : Activity() {
 
         reconnectInProgress = true
 
-        status.text = "RECONNECTING PERSONAL VPN..."
+        status.text = "RECONNECTING PERSONAL VPN"
         status.setTextColor(warning)
 
         executor.execute {
@@ -843,13 +899,25 @@ class MainActivity : Activity() {
                 engine.disconnect()
                 engine.connect(config)
 
+                val tunnelIsActive = engine.isConnected()
+
                 runOnUiThread {
                     reconnectInProgress = false
 
                     if (!connected || isFinishing) return@runOnUiThread
 
+                    if (!tunnelIsActive) {
+                        connected = false
+                        stopConnectionClock()
+                        status.text = "RECONNECT FAILED"
+                        status.setTextColor(warning)
+                        mainConnectButton.text = "CONNECT"
+                        mainConnectButton.isEnabled = true
+                        return@runOnUiThread
+                    }
+
                     status.text =
-                        "● PERSONAL VPN STATUS: CONNECTED"
+                        "PERSONAL VPN STATUS: CONNECTED"
                     status.setTextColor(neon)
 
                     nextReconnectAt =
@@ -875,7 +943,7 @@ class MainActivity : Activity() {
 
                     Toast.makeText(
                         this,
-                        e.message ?: "Automatic reconnect failed",
+                        e.message ?: "Automatic reconnect failed.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -887,7 +955,7 @@ class MainActivity : Activity() {
         mainConnectButton.isEnabled = false
         handler.removeCallbacks(timerTick)
 
-        status.text = "DISCONNECTING..."
+        status.text = "DISCONNECTING"
         status.setTextColor(warning)
 
         executor.execute {
@@ -901,7 +969,7 @@ class MainActivity : Activity() {
                     stopConnectionClock()
 
                     status.text =
-                        "● PERSONAL VPN STATUS: DISCONNECTED"
+                        "PERSONAL VPN STATUS: DISCONNECTED"
                     status.setTextColor(white)
 
                     mainConnectButton.text = "CONNECT"
@@ -921,7 +989,7 @@ class MainActivity : Activity() {
 
                     Toast.makeText(
                         this,
-                        e.message ?: "Disconnect failed",
+                        e.message ?: "Disconnect failed.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
