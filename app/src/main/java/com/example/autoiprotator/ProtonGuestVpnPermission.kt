@@ -13,4 +13,18 @@ object ProtonGuestVpnPermission {
     fun isPermissionGranted(context: Context): Boolean {
         return VpnService.prepare(context) == null
     }
+
+    fun requestPermission(
+        context: Context,
+        onPermissionRequired: (Intent) -> Unit,
+        onPermissionGranted: () -> Unit
+    ) {
+        val permissionIntent = getPermissionIntent(context)
+
+        if (permissionIntent == null) {
+            onPermissionGranted()
+        } else {
+            onPermissionRequired(permissionIntent)
+        }
+    }
 }
