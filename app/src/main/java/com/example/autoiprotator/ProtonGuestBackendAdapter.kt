@@ -24,32 +24,40 @@ class ProtonGuestBackendAdapter(
         callback: (Result<Unit>) -> Unit
     ) {
         configSource.getWireGuardConfig(session, server) { result ->
-
-            result.onFailure { error ->
-                callback(Result.failure(error))
-            }
-
-            result.onSuccess { connectionConfig ->
-
-                ProtonGuestWireGuardConfigBuilder
-                    .build(connectionConfig)
-                    .onFailure { error ->
-                        callback(Result.failure(error))
+            result.fold(
+                onSuccess = { connectionConfig ->
+                    if (connectionConfig.serverId != server.id) {
+                        callback(
+                            Result.failure(
+                                IllegalArgumentException(
+                                    "VPN configuration does not match selected server."
+                                )
+                            )
+                        )
+                        return@getWireGuardConfig
                     }
-                    .onSuccess { wireGuardConfig ->
-                        tunnel.connect(wireGuardConfig, callback)
-                    }
-            }
+
+                    ProtonGuestWireGuardConfigBuilder
+                        .build(connectionConfig)
+                        .fold(
+                            onSuccess = { wireGuardConfig ->
+                                tunnel.connect(wireGuardConfig, callback)
+                            },
+                            onFailure = { error ->
+                                callback(Result.failure(error))
+                            }
+                        )
+                },
+                onFailure = { error ->
+                    callback(Result.failure(error))
+                }
+            )
         }
     }
 
-    override fun disconnect(
-        callback: (Result<Unit>) -> Unit
-    ) {
+    override fun disconnect(callback: (Result<Unit>) -> Unit) {
         tunnel.disconnect(callback)
     }
 
-    override fun isConnected(): Boolean {
-        return tunnel.isConnected()
-    }
+    override fun isConnected(): Boolean = tunnel.isConnected()
 }
