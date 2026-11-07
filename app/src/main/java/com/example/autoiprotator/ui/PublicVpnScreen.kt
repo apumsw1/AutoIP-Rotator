@@ -12,15 +12,19 @@ import android.widget.TextView
 
 class PublicVpnScreen(private val context: Context) {
 
-    private val cyan = Color.rgb(0, 225, 255)
-    private val green = Color.rgb(0, 255, 105)
-    private val red = Color.rgb(255, 45, 55)
+    private val cyan = Color.rgb(0, 235, 255)
+    private val green = Color.rgb(0, 255, 130)
+    private val red = Color.rgb(255, 55, 65)
     private val white = Color.rgb(240, 250, 255)
     private val muted = Color.rgb(145, 180, 205)
+    private val yellow = Color.rgb(255, 190, 50)
 
     private lateinit var statusText: TextView
-    private lateinit var connectButton: Button
-    private lateinit var disconnectButton: Button
+    private lateinit var detailText: TextView
+    private lateinit var toggleButton: Button
+
+    private var connected = false
+    private var busy = false
 
     var onConnect: (() -> Unit)? = null
     var onDisconnect: (() -> Unit)? = null
@@ -49,29 +53,37 @@ class PublicVpnScreen(private val context: Context) {
         setPadding(dp(8), dp(8), dp(8), dp(8))
     }
 
-    private fun makeButton(
-        value: String,
-        color: Int,
-        stroke: Int
-    ) = Button(context).apply {
-        text = value
-        textSize = 17f
-        isAllCaps = false
-        typeface = Typeface.DEFAULT_BOLD
-        setTextColor(white)
-        background = makeBackground(color, stroke)
-        stateListAnimator = null
-        elevation = dp(4).toFloat()
+    private fun updateButton() {
+        if (!::toggleButton.isInitialized) return
+
+        toggleButton.text = when {
+            busy && connected -> "DISCONNECTING..."
+            busy -> "CONNECTING..."
+            connected -> "DISCONNECT VPN"
+            else -> "⚡ CONNECT PUBLIC VPN"
+        }
+
+        toggleButton.background = when {
+            connected -> makeBackground(Color.rgb(75, 8, 18), red)
+            busy -> makeBackground(Color.rgb(55, 45, 5), yellow)
+            else -> makeBackground(Color.rgb(0, 75, 40), green)
+        }
+
+        toggleButton.isEnabled = !busy
     }
 
     fun createView(): LinearLayout {
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(18), dp(16), dp(18))
+            setPadding(dp(16), dp(20), dp(16), dp(20))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(7, 29, 51), Color.rgb(2, 12, 29))
+                intArrayOf(
+                    Color.rgb(7, 29, 51),
+                    Color.rgb(2, 12, 29),
+                    Color.rgb(3, 18, 35)
+                )
             ).apply {
                 cornerRadius = dp(24).toFloat()
                 setStroke(dp(1), cyan)
@@ -79,53 +91,67 @@ class PublicVpnScreen(private val context: Context) {
         }
 
         panel.addView(
-            makeLabel("PUBLIC VPN", 19f, cyan, true),
+            makeLabel("◈ PUBLIC VPN ◈", 20f, cyan, true),
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(50)
             )
         )
 
-        statusText = makeLabel("DISCONNECTED", 17f, muted, true)
+        panel.addView(
+            makeLabel("FREE COMMUNITY VPN CONNECTION", 11f, muted, true),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(35)
+            )
+        )
+
+        statusText = makeLabel("● DISCONNECTED", 18f, muted, true)
         panel.addView(
             statusText,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(55)
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(55)
             )
         )
 
-        connectButton = makeButton("CONNECT", Color.rgb(0, 100, 35), green)
+        detailText = makeLabel("READY TO CONNECT", 12f, muted)
         panel.addView(
-            connectButton,
+            detailText,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(58)
-            ).apply { topMargin = dp(10) }
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(38)
+            )
         )
 
-        disconnectButton = makeButton("DISCONNECT", Color.rgb(100, 0, 15), red)
-        panel.addView(
-            disconnectButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(58)
-            ).apply { topMargin = dp(12) }
-        )
-
-        connectButton.setOnClickListener {
-            setConnecting()
-            val callback = onConnect
-            if (callback == null) {
-                setConnectionFailed()
-            } else {
-                callback.invoke()
-            }
+        toggleButton = Button(context).apply {
+            textSize = 16f
+            isAllCaps = false
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(white)
+            stateListAnimator = null
+            elevation = dp(5).toFloat()
         }
 
-        disconnectButton.setOnClickListener {
-            disconnectButton.isEnabled = false
-            val callback = onDisconnect
-            if (callback == null) {
-                setConnected(false)
+        panel.addView(
+            toggleButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(60)
+            ).apply {
+                topMargin = dp(12)
+            }
+        )
+
+        toggleButton.setOnClickListener {
+            if (busy) return@setOnClickListener
+
+            if (connected) {
+                setDisconnecting()
+                onDisconnect?.invoke() ?: setConnected(false)
             } else {
-                callback.invoke()
+                setConnecting()
+                onConnect?.invoke() ?: setConnectionFailed()
             }
         }
 
@@ -133,24 +159,58 @@ class PublicVpnScreen(private val context: Context) {
         return panel
     }
 
-    fun setConnected(connected: Boolean) {
-        statusText.text = if (connected) "CONNECTED" else "DISCONNECTED"
+    fun setConnected(isConnected: Boolean) {
+        connected = isConnected
+        busy = false
+
+        statusText.text =
+            if (connected) "● VPN CONNECTED" else "● DISCONNECTED"
         statusText.setTextColor(if (connected) green else muted)
-        connectButton.isEnabled = !connected
-        disconnectButton.isEnabled = connected
+
+        detailText.text =
+            if (connected) "SECURE TUNNEL ACTIVE"
+            else "READY TO CONNECT"
+        detailText.setTextColor(if (connected) green else muted)
+
+        updateButton()
     }
 
     fun setConnecting() {
+        connected = false
+        busy = true
         statusText.text = "CONNECTING..."
         statusText.setTextColor(cyan)
-        connectButton.isEnabled = false
-        disconnectButton.isEnabled = false
+        detailText.text = "ESTABLISHING VPN TUNNEL"
+        detailText.setTextColor(cyan)
+        updateButton()
+    }
+
+    fun setDisconnecting() {
+        busy = true
+        statusText.text = "DISCONNECTING..."
+        statusText.setTextColor(yellow)
+        detailText.text = "CLOSING VPN TUNNEL"
+        detailText.setTextColor(yellow)
+        updateButton()
     }
 
     fun setConnectionFailed() {
-        statusText.text = "CONNECTION FAILED"
+        connected = false
+        busy = false
+        statusText.text = "✕ CONNECTION FAILED"
         statusText.setTextColor(red)
-        connectButton.isEnabled = true
-        disconnectButton.isEnabled = false
+        detailText.text = "VPN SERVICE NOT AVAILABLE"
+        detailText.setTextColor(yellow)
+        updateButton()
+    }
+
+    fun setStatus(message: String, isConnected: Boolean) {
+        connected = isConnected
+        busy = false
+        statusText.text = message
+        statusText.setTextColor(if (connected) green else yellow)
+        detailText.text =
+            if (connected) "SECURE TUNNEL ACTIVE" else "CHECK VPN SERVICE"
+        updateButton()
     }
 }
