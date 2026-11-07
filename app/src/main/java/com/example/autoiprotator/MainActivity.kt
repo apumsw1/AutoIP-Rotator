@@ -1,3 +1,4 @@
+
 package com.example.autoiprotator
 
 import android.animation.ObjectAnimator
@@ -120,20 +121,19 @@ class MainActivity : Activity() {
         elevation = dp(5).toFloat()
     }
 
-    private fun card(
-        stroke: Int = cyan
-    ) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        setPadding(dp(15), dp(15), dp(15), dp(15))
-        background = gradient(
-            Color.rgb(7, 29, 51),
-            Color.rgb(2, 12, 29),
-            stroke,
-            24
-        )
-        elevation = dp(5).toFloat()
-    }
+    private fun card(stroke: Int = cyan) =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(15), dp(15), dp(15), dp(15))
+            background = gradient(
+                Color.rgb(7, 29, 51),
+                Color.rgb(2, 12, 29),
+                stroke,
+                24
+            )
+            elevation = dp(5).toFloat()
+        }
 
     private fun addSpace(parent: LinearLayout, height: Int = 12) {
         parent.addView(
@@ -268,8 +268,6 @@ class MainActivity : Activity() {
 
         addCard(root, tabs)
 
-        // PERSONAL VPN PANEL
-
         personalPanel = card()
 
         personalPanel.addView(
@@ -306,24 +304,11 @@ class MainActivity : Activity() {
             )
         )
 
-        // PUBLIC VPN PANEL
-
         publicVpnScreen = PublicVpnScreen(this)
         publicPanel = publicVpnScreen.createView()
 
-        publicVpnScreen.onConnect = {
-            connectPublicGuest()
-        }
-
-        publicVpnScreen.onDisconnect = {
-            publicVpnScreen.setConnected(false)
-            monitorText.text = "PUBLIC VPN  //  DISCONNECTED"
-        }
-
         addCard(root, personalPanel)
         addCard(root, publicPanel)
-
-        // CONNECTION STATUS CARD
 
         val statusCard = card()
 
@@ -406,8 +391,6 @@ class MainActivity : Activity() {
         statusCard.addView(timeRow)
         addCard(root, statusCard)
 
-        // TIMER CARD
-
         val timerCard = card()
 
         timerCard.addView(
@@ -470,8 +453,6 @@ class MainActivity : Activity() {
                 ) = Unit
             }
 
-        // MAIN CONNECT BUTTON
-
         connectButton = makeButton(
             "ϟ  CONNECT",
             Color.rgb(0, 120, 30),
@@ -482,9 +463,7 @@ class MainActivity : Activity() {
         connectButton.textSize = 22f
 
         connectButton.setOnClickListener {
-            if (publicSelected) {
-                connectPublicGuest()
-            } else {
+            if (!publicSelected) {
                 if (connected) {
                     disconnectVpn()
                 } else {
@@ -503,8 +482,6 @@ class MainActivity : Activity() {
                 topMargin = dp(2)
             }
         )
-
-        // NETWORK MONITOR
 
         val monitorCard = card(green)
         monitorCard.orientation = LinearLayout.HORIZONTAL
@@ -561,7 +538,6 @@ class MainActivity : Activity() {
 
         publicPanel.visibility = View.GONE
         personalPanel.visibility = View.VISIBLE
-
         connectButton.visibility = View.VISIBLE
 
         personalTab.background = gradient(
@@ -579,11 +555,7 @@ class MainActivity : Activity() {
         )
 
         mainStatusTitle.text = "PERSONAL VPN STATUS:"
-
         updateConnectionUI()
-
-        connectButton.isEnabled =
-            connected || !configText.isNullOrBlank()
     }
 
     private fun selectPublic() {
@@ -591,8 +563,6 @@ class MainActivity : Activity() {
 
         personalPanel.visibility = View.GONE
         publicPanel.visibility = View.VISIBLE
-
-        // Public VPN uses its own Connect/Disconnect controls.
         connectButton.visibility = View.GONE
 
         publicTab.background = gradient(
@@ -610,12 +580,9 @@ class MainActivity : Activity() {
         )
 
         mainStatusTitle.text = "PUBLIC VPN STATUS:"
-
-        status.text = "NOT CONNECTED"
-        status.setTextColor(warning)
-        statusIcon.text = "●"
-        statusIcon.setTextColor(warning)
-
+        status.text = "USE PUBLIC VPN PANEL"
+        status.setTextColor(cyan)
+        statusIcon.setTextColor(cyan)
         connectionTime.text = "00:00:00"
         monitorText.text = "PUBLIC VPN  //  READY"
     }
@@ -661,22 +628,6 @@ class MainActivity : Activity() {
             connected || !configText.isNullOrBlank()
     }
 
-    private fun connectPublicGuest() {
-        publicVpnScreen.setConnectionFailed()
-
-        status.text = "PUBLIC VPN UNAVAILABLE"
-        status.setTextColor(red)
-        statusIcon.setTextColor(red)
-
-        monitorText.text = "PUBLIC VPN  //  SERVICE NOT CONFIGURED"
-
-        Toast.makeText(
-            this,
-            "Public VPN server service is not connected yet.",
-            Toast.LENGTH_LONG
-        ).show()
-    }
-
     private fun openFilePicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -694,6 +645,11 @@ class MainActivity : Activity() {
         data: Intent?
     ) {
         super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == PublicVpnScreen.VPN_PERMISSION_REQUEST) {
+            publicVpnScreen.onPermissionResult(resultCode == RESULT_OK)
+            return
+        }
 
         if (
             requestCode == FILE_REQUEST &&
@@ -805,9 +761,11 @@ class MainActivity : Activity() {
 
                         handler.removeCallbacks(clockTask)
                         handler.post(clockTask)
-
                     } else {
-                        throw Exception("VPN tunnel is not active.")
+                        connected = false
+                        updateConnectionUI()
+                        status.text = "CONNECTION FAILED"
+                        status.setTextColor(warning)
                     }
                 }
 
@@ -844,7 +802,6 @@ class MainActivity : Activity() {
                     connectionTime.text = "00:00:00"
 
                     updateConnectionUI()
-
                     connectButton.isEnabled =
                         !configText.isNullOrBlank()
                 }
@@ -887,7 +844,6 @@ class MainActivity : Activity() {
 
     private fun reconnectVpn() {
         val config = configText ?: return
-
         if (!connected || reconnecting) return
 
         reconnecting = true
@@ -911,14 +867,11 @@ class MainActivity : Activity() {
                             System.currentTimeMillis() + interval
 
                         updateConnectionUI()
-
                     } else {
                         connected = false
                         updateConnectionUI()
-
                         status.text = "RECONNECT FAILED"
                         status.setTextColor(warning)
-                        connectButton.isEnabled = true
                     }
                 }
 
@@ -928,10 +881,8 @@ class MainActivity : Activity() {
                     connected = false
 
                     updateConnectionUI()
-
                     status.text = "RECONNECT FAILED"
                     status.setTextColor(warning)
-                    connectButton.isEnabled = true
                 }
             }
         }
@@ -966,6 +917,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        publicVpnScreen.shutdown()
         executor.shutdown()
         super.onDestroy()
     }
