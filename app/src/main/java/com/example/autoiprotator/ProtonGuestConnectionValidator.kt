@@ -34,14 +34,6 @@ object ProtonGuestConnectionValidator {
             )
         }
 
-        if (!server.countryCode.equals(config.countryCode, ignoreCase = false)) {
-            return Result.failure(
-                IllegalArgumentException(
-                    "Server country does not match the configuration."
-                )
-            )
-        }
-
         return config.validate()
     }
 }
