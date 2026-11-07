@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:allowBackup="true"
@@ -23,12 +24,27 @@
 
         </activity>
 
-        <!-- WireGuard VPN Service -->
         <service
             android:name="com.wireguard.android.backend.GoBackend$VpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="true"
             tools:replace="android:exported">
+
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+
+        </service>
+
+        <service
+            android:name=".OpenVpnVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="true"
+            android:foregroundServiceType="specialUse">
+
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-initiated VPN tunnel connection" />
 
             <intent-filter>
                 <action android:name="android.net.VpnService" />
