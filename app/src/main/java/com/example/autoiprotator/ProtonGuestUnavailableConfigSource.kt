@@ -1,16 +1,12 @@
+
 package com.example.autoiprotator
 
-/**
- * Safe fallback when no verified Proton Guest API is configured.
- * Never generates fake sessions, credentials, servers, or VPN configs.
- */
 class ProtonGuestUnavailableConfigSource : ProtonGuestConfigSource {
 
-    private fun unavailable(): IllegalStateException {
-        return IllegalStateException(
-            "Proton Guest service is not configured. No verified public API is available."
+    private fun unavailable() =
+        IllegalStateException(
+            "Proton Guest session service is not configured."
         )
-    }
 
     override fun createGuestSession(
         callback: (Result<ProtonGuestSession>) -> Unit
