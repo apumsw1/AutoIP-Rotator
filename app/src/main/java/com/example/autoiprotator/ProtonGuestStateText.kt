@@ -5,25 +5,25 @@ object ProtonGuestStateText {
     fun getStatus(state: ProtonGuestState): String {
         return when (state) {
             is ProtonGuestState.Disconnected ->
-                "Disconnected"
+                "PUBLIC VPN DISCONNECTED"
 
             is ProtonGuestState.WaitingForPermission ->
-                "Waiting for VPN permission"
+                "WAITING FOR VPN PERMISSION"
 
             is ProtonGuestState.CreatingGuestSession ->
-                "Creating guest session..."
+                "CREATING GUEST SESSION..."
 
             is ProtonGuestState.DiscoveringServers ->
-                "Finding available servers..."
+                "SCANNING AVAILABLE SERVERS..."
 
             is ProtonGuestState.Connecting ->
-                "Connecting to VPN..."
+                "ESTABLISHING SECURE TUNNEL..."
 
             is ProtonGuestState.Connected ->
-                "Connected to ${state.serverName}"
+                "CONNECTED: ${state.serverName}"
 
             is ProtonGuestState.Error ->
-                "Connection failed: ${state.message}"
+                "CONNECTION ERROR: ${state.message}"
         }
     }
 
@@ -34,5 +34,19 @@ object ProtonGuestStateText {
     fun canConnect(state: ProtonGuestState): Boolean {
         return state is ProtonGuestState.Disconnected ||
             state is ProtonGuestState.Error
+    }
+
+    fun canDisconnect(state: ProtonGuestState): Boolean {
+        return state is ProtonGuestState.Connected ||
+            state is ProtonGuestState.Connecting ||
+            state is ProtonGuestState.DiscoveringServers ||
+            state is ProtonGuestState.CreatingGuestSession
+    }
+
+    fun isBusy(state: ProtonGuestState): Boolean {
+        return state is ProtonGuestState.WaitingForPermission ||
+            state is ProtonGuestState.CreatingGuestSession ||
+            state is ProtonGuestState.DiscoveringServers ||
+            state is ProtonGuestState.Connecting
     }
 }
