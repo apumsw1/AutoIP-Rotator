@@ -6,29 +6,30 @@ object ProtonGuestWireGuardConfigBuilder {
         connection: ProtonGuestConnectionConfig
     ): Result<String> {
 
-        val validated = connection.validate()
+        val validation = ProtonGuestWireGuardConfigValidator.validate(connection)
 
-        if (validated.isFailure) {
+        if (validation.isFailure) {
             return Result.failure(
-                validated.exceptionOrNull()
-                    ?: IllegalArgumentException("Invalid connection configuration.")
+                validation.exceptionOrNull()
+                    ?: IllegalArgumentException("Invalid WireGuard configuration.")
             )
         }
 
         return try {
-            val endpoint = if (connection.serverAddress.contains(":")) {
-                "[${connection.serverAddress}]:${connection.serverPort}"
+            val address = connection.serverAddress.trim()
+            val endpoint = if (address.contains(":") && !address.startsWith("[")) {
+                "[$address]:${connection.serverPort}"
             } else {
-                "${connection.serverAddress}:${connection.serverPort}"
+                "$address:${connection.serverPort}"
             }
 
             val config = """
                 [Interface]
-                PrivateKey = ${connection.clientPrivateKey}
-                Address = ${connection.clientAddress}
+                PrivateKey = ${connection.clientPrivateKey.trim()}
+                Address = ${connection.clientAddress.trim()}
 
                 [Peer]
-                PublicKey = ${connection.serverPublicKey}
+                PublicKey = ${connection.serverPublicKey.trim()}
                 Endpoint = $endpoint
                 AllowedIPs = 0.0.0.0/0, ::/0
                 PersistentKeepalive = 25
