@@ -1,35 +1,30 @@
-
 package com.example.autoiprotator
 
-import android.util.Base64
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.concurrent.Executors
-
 class ProtonGuestUnavailableConfigSource : ProtonGuestConfigSource {
-
-    private val executor = Executors.newSingleThreadExecutor()
 
     override fun createGuestSession(
         callback: (Result<ProtonGuestSession>) -> Unit
     ) {
-        executor.execute {
-            callback(
-                Result.failure(
-                    UnsupportedOperationException(
-                        "Guest authentication requires Proton's supported challenge flow."
-                    )
+        callback(
+            Result.failure(
+                UnsupportedOperationException(
+                    "Proton Guest authentication is not integrated yet."
                 )
             )
-        }
+        )
     }
 
     override fun discoverFreeServers(
         session: ProtonGuestSession,
         callback: (Result<List<ProtonFreeServer>>) -> Unit
     ) {
-        callback(Result.failure(IllegalStateException("No guest session.")))
+        callback(
+            Result.failure(
+                UnsupportedOperationException(
+                    "Proton Guest server discovery is not integrated yet."
+                )
+            )
+        )
     }
 
     override fun getWireGuardConfig(
@@ -37,6 +32,12 @@ class ProtonGuestUnavailableConfigSource : ProtonGuestConfigSource {
         server: ProtonFreeServer,
         callback: (Result<ProtonGuestConnectionConfig>) -> Unit
     ) {
-        callback(Result.failure(IllegalStateException("No guest session.")))
+        callback(
+            Result.failure(
+                UnsupportedOperationException(
+                    "An authenticated Proton WireGuard configuration is required."
+                )
+            )
+        )
     }
 }
