@@ -1,15 +1,10 @@
 package com.example.autoiprotator.ui
 
 import android.app.Activity
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.VpnService
-import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -17,15 +12,15 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.ContextCompat
-import com.example.autoiprotator.OpenVpnVpnService
-import com.example.autoiprotator.VpnGateOpenVpnAdapter
-import com.example.autoiprotator.VpnGateServer
-import com.example.autoiprotator.VpnGateServerLoader
+import com.example.autoiprotator.ProtonGuestBackend
+import com.example.autoiprotator.ProtonGuestBackendFactory
+import com.example.autoiprotator.ProtonGuestController
+import com.example.autoiprotator.ProtonGuestState
 
 class PublicVpnScreen(private val context: Context) {
 
     private val activity = context as Activity
+
     private val cyan = Color.rgb(0, 235, 255)
     private val green = Color.rgb(0, 255, 130)
     private val red = Color.rgb(255, 55, 65)
@@ -37,45 +32,19 @@ class PublicVpnScreen(private val context: Context) {
     private lateinit var detailText: TextView
     private lateinit var toggleButton: Button
 
-    private val serverLoader = VpnGateServerLoader()
     private var connected = false
     private var busy = false
-    private var permissionPending = false
-    private var receiverRegistered = false
 
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != OpenVpnVpnService.ACTION_STATUS) return
-
-            val isConnected = intent.getBooleanExtra(
-                OpenVpnVpnService.EXTRA_CONNECTED,
-                false
-            )
-            val message = intent.getStringExtra(
-                OpenVpnVpnService.EXTRA_MESSAGE
-            ) ?: "VPN status updated"
-
-            connected = isConnected
-            busy = false
-
-            statusText.text = if (isConnected) {
-                "● VPN CONNECTED"
-            } else {
-                "● DISCONNECTED"
-            }
-
-            statusText.setTextColor(if (isConnected) green else yellow)
-            detailText.text = message
-            detailText.setTextColor(if (isConnected) green else muted)
-            updateButton()
-        }
+    private val backend: ProtonGuestBackend by lazy {
+        ProtonGuestBackendFactory.create(context.applicationContext)
     }
 
-    var onConnect: (() -> Unit)? = null
-    var onDisconnect: (() -> Unit)? = null
-
-    companion object {
-        const val VPN_PERMISSION_REQUEST = 4193
+    private val controller: ProtonGuestController by lazy {
+        ProtonGuestController(backend) { state ->
+            activity.runOnUiThread {
+                updateState(state)
+            }
+        }
     }
 
     private fun dp(value: Int): Int =
@@ -108,8 +77,8 @@ class PublicVpnScreen(private val context: Context) {
         toggleButton.text = when {
             busy && connected -> "DISCONNECTING..."
             busy -> "CONNECTING..."
-            connected -> "DISCONNECT VPN"
-            else -> "⚡ CONNECT PUBLIC VPN"
+            connected -> "DISCONNECT PROTON VPN"
+            else -> "⚡ CONNECT PROTON GUEST"
         }
 
         toggleButton.background = when {
@@ -140,7 +109,7 @@ class PublicVpnScreen(private val context: Context) {
         }
 
         panel.addView(
-            makeLabel("◈ PUBLIC VPN ◈", 20f, cyan, true),
+            makeLabel("◈ PROTON GUEST VPN ◈", 20f, cyan, true),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(50)
@@ -148,14 +117,21 @@ class PublicVpnScreen(private val context: Context) {
         )
 
         panel.addView(
-            makeLabel("FREE COMMUNITY VPN CONNECTION", 11f, muted, true),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(35)
+            makeLabel(
+                "FREE PROTON VPN CONNECTION",
+                11f,
+                muted,
+                true
             )
         )
 
-        statusText = makeLabel("● DISCONNECTED", 18f, muted, true)
+        statusText = makeLabel(
+            "● DISCONNECTED",
+            18f,
+            muted,
+            true
+        )
+
         panel.addView(
             statusText,
             LinearLayout.LayoutParams(
@@ -164,12 +140,17 @@ class PublicVpnScreen(private val context: Context) {
             )
         )
 
-        detailText = makeLabel("READY TO CONNECT", 12f, muted)
+        detailText = makeLabel(
+            "PROTON GUEST READY",
+            12f,
+            muted
+        )
+
         panel.addView(
             detailText,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(38)
+                dp(48)
             )
         )
 
@@ -196,148 +177,116 @@ class PublicVpnScreen(private val context: Context) {
             if (busy) return@setOnClickListener
 
             if (connected) {
-                disconnectPublicVpn()
+                setDisconnecting()
+                controller.disconnect()
             } else {
-                requestPublicVpnPermission()
+                startGuestConnection()
             }
         }
 
-        registerStatusReceiver()
-        setConnected(false)
+        updateButton()
         return panel
     }
 
-    private fun registerStatusReceiver() {
-        if (receiverRegistered) return
-
-        val filter = IntentFilter(OpenVpnVpnService.ACTION_STATUS)
-
-        if (Build.VERSION.SDK_INT >= 33) {
-            ContextCompat.registerReceiver(
-                context,
-                receiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            context.registerReceiver(receiver, filter)
-        }
-
-        receiverRegistered = true
-    }
-
-    private fun requestPublicVpnPermission() {
-        val permissionIntent = VpnService.prepare(context)
+    private fun startGuestConnection() {
+        val permissionIntent =
+            android.net.VpnService.prepare(context)
 
         if (permissionIntent != null) {
-            permissionPending = true
-            setConnecting()
+            Toast.makeText(
+                context,
+                "Allow VPN permission first, then connect again.",
+                Toast.LENGTH_LONG
+            ).show()
+
             activity.startActivityForResult(
                 permissionIntent,
                 VPN_PERMISSION_REQUEST
             )
-        } else {
-            loadAndConnectServer()
+            return
         }
+
+        setConnecting()
+        controller.connect()
     }
 
     fun onPermissionResult(granted: Boolean) {
-        if (!permissionPending) return
-        permissionPending = false
-
         if (granted) {
-            loadAndConnectServer()
+            setConnecting()
+            controller.connect()
         } else {
             setConnectionFailed("VPN permission denied")
         }
     }
 
-    private fun loadAndConnectServer() {
-        setConnecting()
-        detailText.text = "SEARCHING FREE VPN GATE SERVERS..."
-
-        serverLoader.load { result ->
-            if (activity.isFinishing || activity.isDestroyed) return@load
-
-            result.onSuccess { servers ->
-                val server = servers.firstOrNull()
-
-                if (server == null) {
-                    setConnectionFailed("No VPN Gate servers found")
-                    return@onSuccess
-                }
-
-                detailText.text = "CONNECTING: ${server.country} / ${server.ip}"
-
-                val connectResult = VpnGateOpenVpnAdapter.connect(
-                    context,
-                    server
-                )
-
-                connectResult.onFailure { error ->
-                    setConnectionFailed(
-                        error.message ?: "VPN connection could not start"
-                    )
-                }
+    private fun updateState(state: ProtonGuestState) {
+        when (state) {
+            is ProtonGuestState.Disconnected -> {
+                connected = false
+                busy = false
+                statusText.text = "● DISCONNECTED"
+                statusText.setTextColor(muted)
+                detailText.text = "PROTON GUEST READY"
+                detailText.setTextColor(muted)
             }
 
-            result.onFailure { error ->
-                setConnectionFailed(
-                    error.message ?: "VPN Gate server search failed"
-                )
+            is ProtonGuestState.WaitingForPermission -> {
+                setConnecting()
+                detailText.text = "WAITING FOR VPN PERMISSION"
+            }
+
+            is ProtonGuestState.CreatingGuestSession -> {
+                setConnecting()
+                detailText.text = "CREATING PROTON GUEST SESSION..."
+            }
+
+            is ProtonGuestState.DiscoveringServers -> {
+                setConnecting()
+                detailText.text = "SEARCHING PROTON SERVERS..."
+            }
+
+            is ProtonGuestState.Connecting -> {
+                setConnecting()
+                detailText.text = "ESTABLISHING PROTON TUNNEL..."
+            }
+
+            is ProtonGuestState.Connected -> {
+                connected = true
+                busy = false
+                statusText.text = "● PROTON VPN CONNECTED"
+                statusText.setTextColor(green)
+                detailText.text = "SERVER: ${state.serverName}"
+                detailText.setTextColor(green)
+            }
+
+            is ProtonGuestState.Error -> {
+                setConnectionFailed(state.message)
             }
         }
-    }
-
-    private fun disconnectPublicVpn() {
-        setDisconnecting()
-
-        try {
-            VpnGateOpenVpnAdapter.disconnect(context)
-        } catch (error: Exception) {
-            setConnectionFailed(
-                error.message ?: "Disconnect request failed"
-            )
-        }
-    }
-
-    fun setConnected(isConnected: Boolean) {
-        connected = isConnected
-        busy = false
-
-        statusText.text =
-            if (connected) "● VPN CONNECTED" else "● DISCONNECTED"
-        statusText.setTextColor(if (connected) green else muted)
-
-        detailText.text =
-            if (connected) "SECURE TUNNEL ACTIVE"
-            else "READY TO CONNECT"
-        detailText.setTextColor(if (connected) green else muted)
 
         updateButton()
     }
 
-    fun setConnecting() {
+    private fun setConnecting() {
         connected = false
         busy = true
         statusText.text = "CONNECTING..."
         statusText.setTextColor(cyan)
-        detailText.text = "ESTABLISHING VPN TUNNEL"
+        detailText.text = "STARTING PROTON GUEST"
         detailText.setTextColor(cyan)
         updateButton()
     }
 
-    fun setDisconnecting() {
+    private fun setDisconnecting() {
         busy = true
         statusText.text = "DISCONNECTING..."
         statusText.setTextColor(yellow)
-        detailText.text = "CLOSING VPN TUNNEL"
+        detailText.text = "CLOSING PROTON TUNNEL"
         detailText.setTextColor(yellow)
         updateButton()
     }
 
-    fun setConnectionFailed(message: String = "VPN SERVICE NOT AVAILABLE") {
+    private fun setConnectionFailed(message: String) {
         connected = false
         busy = false
         statusText.text = "✕ CONNECTION FAILED"
@@ -346,24 +295,57 @@ class PublicVpnScreen(private val context: Context) {
         detailText.setTextColor(yellow)
         updateButton()
 
-        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        Toast.makeText(
+            context,
+            message,
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    fun setConnected(isConnected: Boolean) {
+        connected = isConnected
+        busy = false
+
+        statusText.text =
+            if (connected) "● PROTON VPN CONNECTED"
+            else "● DISCONNECTED"
+
+        statusText.setTextColor(
+            if (connected) green else muted
+        )
+
+        detailText.text =
+            if (connected) "SECURE TUNNEL ACTIVE"
+            else "PROTON GUEST READY"
+
+        updateButton()
     }
 
     fun setStatus(message: String, isConnected: Boolean) {
         connected = isConnected
         busy = false
         statusText.text = message
-        statusText.setTextColor(if (connected) green else yellow)
+        statusText.setTextColor(
+            if (connected) green else yellow
+        )
         detailText.text =
-            if (connected) "SECURE TUNNEL ACTIVE" else "CHECK VPN SERVICE"
+            if (connected) "SECURE TUNNEL ACTIVE"
+            else "CHECK PROTON SERVICE"
+
         updateButton()
     }
 
+    fun setConnectionFailedPublic(message: String) {
+        setConnectionFailed(message)
+    }
+
     fun shutdown() {
-        if (receiverRegistered) {
-            runCatching { context.unregisterReceiver(receiver) }
-            receiverRegistered = false
+        if (backend is com.example.autoiprotator.ProtonGuestWireGuardBackend) {
+            backend.shutdown()
         }
-        serverLoader.shutdown()
+    }
+
+    companion object {
+        const val VPN_PERMISSION_REQUEST = 4193
     }
 }
