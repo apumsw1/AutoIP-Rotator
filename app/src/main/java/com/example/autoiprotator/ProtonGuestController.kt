@@ -2,7 +2,9 @@ package com.example.autoiprotator
 
 class ProtonGuestController(
     private val backend: ProtonGuestBackend,
-    private val onStateChanged: (ProtonGuestState) -> Unit
+    private val onStateChanged: (ProtonGuestState) -> Unit,
+    private val serverSelector: ProtonGuestServerSelector =
+        ProtonGuestServerSelector()
 ) {
     @Volatile
     private var currentSession: ProtonGuestSession? = null
@@ -14,7 +16,7 @@ class ProtonGuestController(
     private var operationInProgress = false
 
     @Synchronized
-    fun connect() {
+    fun connect(rotate: Boolean = false) {
         if (operationInProgress || backend.isConnected()) return
 
         operationInProgress = true
@@ -24,26 +26,29 @@ class ProtonGuestController(
             result.fold(
                 onSuccess = { session ->
                     currentSession = session
-                    discoverServers(session)
+                    discoverServers(session, rotate)
                 },
                 onFailure = ::fail
             )
         }
     }
 
-    private fun discoverServers(session: ProtonGuestSession) {
+    private fun discoverServers(
+        session: ProtonGuestSession,
+        rotate: Boolean
+    ) {
         onStateChanged(ProtonGuestState.DiscoveringServers)
 
         backend.discoverFreeServers(session) { result ->
             result.fold(
                 onSuccess = { servers ->
-                    if (servers.isEmpty()) {
-                        fail(IllegalStateException("No free servers available."))
-                    } else {
-                        val server = servers.first()
-                        currentServer = server
-                        connectToServer(session, server)
-                    }
+                    serverSelector.selectServer(servers, rotate).fold(
+                        onSuccess = { server ->
+                            currentServer = server
+                            connectToServer(session, server)
+                        },
+                        onFailure = ::fail
+                    )
                 },
                 onFailure = ::fail
             )
