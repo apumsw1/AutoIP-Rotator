@@ -40,18 +40,6 @@ object ProtonGuestConnectionValidator {
             )
         }
 
-        if (server.host.isBlank()) {
-            return Result.failure(
-                IllegalArgumentException("Selected server address is missing.")
-            )
-        }
-
-        if (config.serverAddress.isBlank()) {
-            return Result.failure(
-                IllegalArgumentException("VPN endpoint address is missing.")
-            )
-        }
-
         return ProtonGuestWireGuardConfigValidator.validate(config)
     }
 }
