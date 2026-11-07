@@ -1,11 +1,9 @@
-
 package com.example.autoiprotator
 
 class ProtonGuestController(
     private val backend: ProtonGuestBackend,
     private val onStateChanged: (ProtonGuestState) -> Unit
 ) {
-
     @Volatile
     private var currentSession: ProtonGuestSession? = null
 
@@ -22,41 +20,32 @@ class ProtonGuestController(
         operationInProgress = true
         onStateChanged(ProtonGuestState.CreatingGuestSession)
 
-        backend.createGuestSession { sessionResult ->
-            sessionResult.fold(
+        backend.createGuestSession { result ->
+            result.fold(
                 onSuccess = { session ->
                     currentSession = session
-                    discoverServer(session)
+                    discoverServers(session)
                 },
-                onFailure = { error ->
-                    fail(error)
-                }
+                onFailure = ::fail
             )
         }
     }
 
-    private fun discoverServer(session: ProtonGuestSession) {
+    private fun discoverServers(session: ProtonGuestSession) {
         onStateChanged(ProtonGuestState.DiscoveringServers)
 
-        backend.discoverFreeServers(session) { serverResult ->
-            serverResult.fold(
+        backend.discoverFreeServers(session) { result ->
+            result.fold(
                 onSuccess = { servers ->
-                    val server = servers.firstOrNull()
-
-                    if (server == null) {
-                        fail(
-                            IllegalStateException(
-                                "No Proton Free servers were returned."
-                            )
-                        )
+                    if (servers.isEmpty()) {
+                        fail(IllegalStateException("No free servers available."))
                     } else {
+                        val server = servers.first()
                         currentServer = server
                         connectToServer(session, server)
                     }
                 },
-                onFailure = { error ->
-                    fail(error)
-                }
+                onFailure = ::fail
             )
         }
     }
@@ -72,7 +61,6 @@ class ProtonGuestController(
                 onSuccess = {
                     if (backend.isConnected()) {
                         operationInProgress = false
-
                         onStateChanged(
                             ProtonGuestState.Connected(
                                 serverName = server.name,
@@ -82,22 +70,21 @@ class ProtonGuestController(
                     } else {
                         fail(
                             IllegalStateException(
-                                "Backend did not confirm an active VPN tunnel."
+                                "VPN tunnel did not confirm connection."
                             )
                         )
                     }
                 },
-                onFailure = { error ->
-                    fail(error)
-                }
+                onFailure = ::fail
             )
         }
     }
 
     fun disconnect() {
-        if (operationInProgress) return
-
-        operationInProgress = true
+        synchronized(this) {
+            if (operationInProgress) return
+            operationInProgress = true
+        }
 
         backend.disconnect { result ->
             operationInProgress = false
@@ -108,16 +95,14 @@ class ProtonGuestController(
                     currentServer = null
                     onStateChanged(ProtonGuestState.Disconnected)
                 },
-                onFailure = { error ->
-                    fail(error)
-                }
+                onFailure = ::fail
             )
         }
     }
 
+    @Synchronized
     private fun fail(error: Throwable) {
         operationInProgress = false
-
         onStateChanged(
             ProtonGuestState.Error(
                 error.message ?: "Guest VPN operation failed."
