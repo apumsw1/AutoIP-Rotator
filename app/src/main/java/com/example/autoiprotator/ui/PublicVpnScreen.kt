@@ -2,22 +2,28 @@
 package com.example.autoiprotator.ui
 
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.VpnService
+import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
-import com.example.autoiprotator.ProtonGuestBackend
-import com.example.autoiprotator.ProtonGuestBackendFactory
-import com.example.autoiprotator.ProtonGuestController
-import com.example.autoiprotator.ProtonGuestState
-import com.example.autoiprotator.ProtonGuestWireGuardBackend
+import com.example.autoiprotator.OpenVpnVpnService
+import com.example.autoiprotator.RiseupServer
+import com.example.autoiprotator.RiseupVpnClient
 
 class PublicVpnScreen(private val context: Context) {
 
@@ -32,26 +38,52 @@ class PublicVpnScreen(private val context: Context) {
 
     private lateinit var statusText: TextView
     private lateinit var detailText: TextView
-    private lateinit var toggleButton: Button
+    private lateinit var serverSpinner: Spinner
+    private lateinit var refreshButton: Button
+    private lateinit var connectButton: Button
 
+    private val servers = mutableListOf<RiseupServer>()
+
+    private var selectedServer: RiseupServer? = null
     private var connected = false
     private var busy = false
+    private var receiverRegistered = false
 
-    private val backend: ProtonGuestBackend by lazy {
-        ProtonGuestBackendFactory.create(
-            context.applicationContext
-        )
-    }
+    private val statusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != OpenVpnVpnService.ACTION_STATUS) return
 
-    private val controller: ProtonGuestController by lazy {
-        ProtonGuestController(
-            backend = backend,
-            onStateChanged = { state ->
-                activity.runOnUiThread {
-                    updateState(state)
+            val isConnected = intent.getBooleanExtra(
+                OpenVpnVpnService.EXTRA_CONNECTED,
+                false
+            )
+
+            val message = intent.getStringExtra(
+                OpenVpnVpnService.EXTRA_MESSAGE
+            ) ?: "VPN status updated"
+
+            activity.runOnUiThread {
+                connected = isConnected
+                busy = false
+
+                statusText.text = if (connected) {
+                    "● RISEUP VPN CONNECTED"
+                } else {
+                    if (message.contains("disconnect", true)) {
+                        "● DISCONNECTED"
+                    } else {
+                        "● NOT CONNECTED"
+                    }
                 }
+
+                statusText.setTextColor(
+                    if (connected) green else yellow
+                )
+
+                detailText.text = message
+                updateButtons()
             }
-        )
+        }
     }
 
     private fun dp(value: Int): Int {
@@ -60,18 +92,18 @@ class PublicVpnScreen(private val context: Context) {
         ).toInt()
     }
 
-    private fun makeBackground(
+    private fun background(
         color: Int,
         stroke: Int
     ): GradientDrawable {
         return GradientDrawable().apply {
             setColor(color)
-            cornerRadius = dp(20).toFloat()
+            cornerRadius = dp(18).toFloat()
             setStroke(dp(1), stroke)
         }
     }
 
-    private fun makeLabel(
+    private fun label(
         value: String,
         size: Float,
         color: Int,
@@ -87,43 +119,24 @@ class PublicVpnScreen(private val context: Context) {
             } else {
                 Typeface.DEFAULT
             }
-            setPadding(
-                dp(8),
-                dp(8),
-                dp(8),
-                dp(8)
-            )
+            setPadding(dp(8), dp(8), dp(8), dp(8))
         }
     }
 
-    private fun updateButton() {
-        if (!::toggleButton.isInitialized) return
-
-        toggleButton.text = when {
-            busy && connected -> "DISCONNECTING..."
-            busy -> "CONNECTING..."
-            connected -> "DISCONNECT PROTON VPN"
-            else -> "⚡ CONNECT PROTON GUEST"
+    private fun makeButton(
+        value: String,
+        color: Int,
+        stroke: Int
+    ): Button {
+        return Button(context).apply {
+            text = value
+            textSize = 14f
+            isAllCaps = false
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(white)
+            background = background(color, stroke)
+            stateListAnimator = null
         }
-
-        toggleButton.background = when {
-            connected -> makeBackground(
-                Color.rgb(75, 8, 18),
-                red
-            )
-
-            busy -> makeBackground(
-                Color.rgb(55, 45, 5),
-                yellow
-            )
-
-            else -> makeBackground(
-                Color.rgb(0, 75, 40),
-                green
-            )
-        }
-
-        toggleButton.isEnabled = !busy
     }
 
     fun createView(): LinearLayout {
@@ -131,13 +144,7 @@ class PublicVpnScreen(private val context: Context) {
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-
-            setPadding(
-                dp(16),
-                dp(20),
-                dp(16),
-                dp(20)
-            )
+            setPadding(dp(15), dp(18), dp(15), dp(18))
 
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
@@ -153,30 +160,25 @@ class PublicVpnScreen(private val context: Context) {
         }
 
         panel.addView(
-            makeLabel(
-                "◈ PROTON GUEST VPN ◈",
-                20f,
-                cyan,
-                true
-            ),
+            label("◈ RISEUP PUBLIC VPN ◈", 20f, cyan, true),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(50)
+                dp(52)
             )
         )
 
         panel.addView(
-            makeLabel(
-                "FREE PROTON VPN CONNECTION",
+            label(
+                "FREE COMMUNITY VPN SERVERS",
                 11f,
                 muted,
                 true
             )
         )
 
-        statusText = makeLabel(
+        statusText = label(
             "● DISCONNECTED",
-            18f,
+            17f,
             muted,
             true
         )
@@ -185,12 +187,12 @@ class PublicVpnScreen(private val context: Context) {
             statusText,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(55)
+                dp(48)
             )
         )
 
-        detailText = makeLabel(
-            "PROTON GUEST READY",
+        detailText = label(
+            "Tap REFRESH to discover Riseup servers.",
             12f,
             muted
         )
@@ -199,272 +201,301 @@ class PublicVpnScreen(private val context: Context) {
             detailText,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(48)
+                dp(55)
             )
         )
 
-        toggleButton = Button(context).apply {
-            textSize = 16f
-            isAllCaps = false
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(white)
-            stateListAnimator = null
-            elevation = dp(5).toFloat()
-        }
+        serverSpinner = Spinner(context)
+
+        serverSpinner.adapter = ArrayAdapter(
+            context,
+            android.R.layout.simple_spinner_dropdown_item,
+            mutableListOf("No servers loaded")
+        )
 
         panel.addView(
-            toggleButton,
+            serverSpinner,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(60)
+                dp(55)
+            )
+        )
+
+        refreshButton = makeButton(
+            "↻ REFRESH FREE SERVERS",
+            Color.rgb(0, 65, 105),
+            cyan
+        )
+
+        panel.addView(
+            refreshButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(52)
+            ).apply {
+                topMargin = dp(8)
+            }
+        )
+
+        connectButton = makeButton(
+            "⚡ CONNECT RISEUP VPN",
+            Color.rgb(0, 75, 40),
+            green
+        )
+
+        panel.addView(
+            connectButton,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(58)
             ).apply {
                 topMargin = dp(12)
             }
         )
 
-        toggleButton.setOnClickListener {
+        refreshButton.setOnClickListener {
+            discoverServers()
+        }
 
-            if (busy) {
-                return@setOnClickListener
-            }
+        connectButton.setOnClickListener {
+            if (busy) return@setOnClickListener
 
             if (connected) {
-                setDisconnecting()
-                controller.disconnect()
+                disconnect()
             } else {
-                startGuestConnection()
+                requestPermissionAndConnect()
             }
         }
 
-        updateButton()
+        serverSpinner.onItemSelectedListener =
+            object : AdapterView.OnItemSelectedListener {
+
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long
+                ) {
+                    selectedServer = servers.getOrNull(position)
+                }
+
+                override fun onNothingSelected(
+                    parent: AdapterView<*>?
+                ) {
+                    selectedServer = null
+                }
+            }
+
+        registerStatusReceiver()
+        updateButtons()
 
         return panel
     }
 
-    private fun startGuestConnection() {
+    private fun registerStatusReceiver() {
+        if (receiverRegistered) return
 
-        val permissionIntent =
-            android.net.VpnService.prepare(context)
+        val filter = IntentFilter(
+            OpenVpnVpnService.ACTION_STATUS
+        )
 
-        if (permissionIntent != null) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            context.registerReceiver(
+                statusReceiver,
+                filter,
+                Context.RECEIVER_NOT_EXPORTED
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            context.registerReceiver(statusReceiver, filter)
+        }
 
+        receiverRegistered = true
+    }
+
+    private fun discoverServers() {
+        if (busy) return
+
+        busy = true
+        detailText.text = "CONTACTING RISEUP API..."
+        statusText.text = "● SEARCHING SERVERS"
+        statusText.setTextColor(cyan)
+        updateButtons()
+
+        RiseupVpnClient.discoverServers { result ->
+            activity.runOnUiThread {
+                busy = false
+
+                result.onSuccess { found ->
+                    servers.clear()
+                    servers.addAll(found)
+
+                    val names = found.map {
+                        "${it.location.uppercase()}  |  ${it.name}  |  ${it.protocol.uppercase()}:${it.port}"
+                    }
+
+                    serverSpinner.adapter = ArrayAdapter(
+                        context,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        names
+                    )
+
+                    selectedServer = found.firstOrNull()
+
+                    statusText.text = "● ${found.size} SERVERS FOUND"
+                    statusText.setTextColor(green)
+                    detailText.text =
+                        "Select a server and press CONNECT."
+
+                    Toast.makeText(
+                        context,
+                        "${found.size} Riseup servers found.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                result.onFailure { error ->
+                    statusText.text = "✕ SERVER DISCOVERY FAILED"
+                    statusText.setTextColor(red)
+                    detailText.text =
+                        error.message ?: "Unable to load servers."
+                }
+
+                updateButtons()
+            }
+        }
+    }
+
+    private fun requestPermissionAndConnect() {
+        val server = selectedServer
+
+        if (server == null) {
             Toast.makeText(
                 context,
-                "Allow VPN permission first, then connect again.",
+                "Refresh and select a server first.",
                 Toast.LENGTH_LONG
             ).show()
+            return
+        }
 
+        val permissionIntent = VpnService.prepare(context)
+
+        if (permissionIntent != null) {
             activity.startActivityForResult(
                 permissionIntent,
                 VPN_PERMISSION_REQUEST
             )
-
-            return
+        } else {
+            connectSelectedServer()
         }
-
-        setConnecting()
-        controller.connect()
     }
 
     fun onPermissionResult(granted: Boolean) {
-
         if (granted) {
-            setConnecting()
-            controller.connect()
+            connectSelectedServer()
         } else {
-            setConnectionFailed(
-                "VPN permission denied"
-            )
+            showError("VPN permission denied.")
         }
     }
 
-    private fun updateState(state: ProtonGuestState) {
+    private fun connectSelectedServer() {
+        val server = selectedServer
 
-        when (state) {
-
-            is ProtonGuestState.Disconnected -> {
-
-                connected = false
-                busy = false
-
-                statusText.text = "● DISCONNECTED"
-                statusText.setTextColor(muted)
-
-                detailText.text = "PROTON GUEST READY"
-                detailText.setTextColor(muted)
-            }
-
-            is ProtonGuestState.WaitingForPermission -> {
-
-                setConnecting()
-
-                detailText.text =
-                    "WAITING FOR VPN PERMISSION"
-            }
-
-            is ProtonGuestState.CreatingGuestSession -> {
-
-                setConnecting()
-
-                detailText.text =
-                    "CREATING PROTON GUEST SESSION..."
-            }
-
-            is ProtonGuestState.DiscoveringServers -> {
-
-                setConnecting()
-
-                detailText.text =
-                    "SEARCHING PROTON SERVERS..."
-            }
-
-            is ProtonGuestState.Connecting -> {
-
-                setConnecting()
-
-                detailText.text =
-                    "ESTABLISHING PROTON TUNNEL..."
-            }
-
-            is ProtonGuestState.Connected -> {
-
-                connected = true
-                busy = false
-
-                statusText.text =
-                    "● PROTON VPN CONNECTED"
-
-                statusText.setTextColor(green)
-
-                detailText.text =
-                    "SERVER: ${state.serverName}"
-
-                detailText.setTextColor(green)
-            }
-
-            is ProtonGuestState.Error -> {
-
-                setConnectionFailed(
-                    state.message
-                )
-            }
+        if (server == null) {
+            showError("No server selected.")
+            return
         }
 
-        updateButton()
-    }
-
-    private fun setConnecting() {
-
-        connected = false
         busy = true
-
-        statusText.text = "CONNECTING..."
+        statusText.text = "● CONNECTING..."
         statusText.setTextColor(cyan)
+        detailText.text = "REQUESTING RISEUP CERTIFICATE..."
+        updateButtons()
 
-        detailText.text = "STARTING PROTON GUEST"
-        detailText.setTextColor(cyan)
+        RiseupVpnClient.connect(
+            context.applicationContext,
+            server
+        ) { result ->
+            activity.runOnUiThread {
+                result.onSuccess {
+                    statusText.text = "● STARTING VPN TUNNEL"
+                    statusText.setTextColor(yellow)
+                    detailText.text =
+                        "Waiting for OpenVPN connection status..."
+                }
 
-        updateButton()
+                result.onFailure { error ->
+                    busy = false
+                    showError(
+                        error.message ?: "Connection failed."
+                    )
+                }
+
+                updateButtons()
+            }
+        }
     }
 
-    private fun setDisconnecting() {
-
+    private fun disconnect() {
         busy = true
-
-        statusText.text = "DISCONNECTING..."
+        statusText.text = "● DISCONNECTING..."
         statusText.setTextColor(yellow)
+        detailText.text = "Closing VPN tunnel..."
+        updateButtons()
 
-        detailText.text = "CLOSING PROTON TUNNEL"
-        detailText.setTextColor(yellow)
-
-        updateButton()
+        RiseupVpnClient.disconnect(context)
     }
 
-    private fun setConnectionFailed(
-        message: String
-    ) {
-
-        connected = false
+    private fun showError(message: String) {
         busy = false
+        connected = false
 
         statusText.text = "✕ CONNECTION FAILED"
         statusText.setTextColor(red)
-
         detailText.text = message
-        detailText.setTextColor(yellow)
-
-        updateButton()
 
         Toast.makeText(
             context,
             message,
             Toast.LENGTH_LONG
         ).show()
+
+        updateButtons()
     }
 
-    fun setConnected(isConnected: Boolean) {
+    private fun updateButtons() {
+        if (!::connectButton.isInitialized) return
 
-        connected = isConnected
-        busy = false
+        connectButton.text = when {
+            busy -> "PLEASE WAIT..."
+            connected -> "DISCONNECT RISEUP VPN"
+            else -> "⚡ CONNECT RISEUP VPN"
+        }
 
-        statusText.text =
+        connectButton.isEnabled = !busy &&
+            (connected || selectedServer != null)
+
+        refreshButton.isEnabled = !busy
+        serverSpinner.isEnabled = !busy && !connected
+
+        connectButton.background = background(
             if (connected) {
-                "● PROTON VPN CONNECTED"
+                Color.rgb(75, 8, 18)
             } else {
-                "● DISCONNECTED"
-            }
-
-        statusText.setTextColor(
-            if (connected) green else muted
+                Color.rgb(0, 75, 40)
+            },
+            if (connected) red else green
         )
-
-        detailText.text =
-            if (connected) {
-                "SECURE TUNNEL ACTIVE"
-            } else {
-                "PROTON GUEST READY"
-            }
-
-        updateButton()
     }
 
-    fun setStatus(
-        message: String,
-        isConnected: Boolean
-    ) {
-
-        connected = isConnected
-        busy = false
-
-        statusText.text = message
-
-        statusText.setTextColor(
-            if (connected) green else yellow
-        )
-
-        detailText.text =
-            if (connected) {
-                "SECURE TUNNEL ACTIVE"
-            } else {
-                "CHECK PROTON SERVICE"
-            }
-
-        updateButton()
-    }
-
-    fun setConnectionFailedPublic(
-        message: String
-    ) {
-        setConnectionFailed(message)
-    }
-
-    // FIXED: Local variable prevents delegated-property smart-cast error.
     fun shutdown() {
+        if (receiverRegistered) {
+            try {
+                context.unregisterReceiver(statusReceiver)
+            } catch (_: Exception) {
+            }
 
-        val currentBackend = backend
-
-        if (currentBackend is ProtonGuestWireGuardBackend) {
-            currentBackend.shutdown()
+            receiverRegistered = false
         }
     }
 
