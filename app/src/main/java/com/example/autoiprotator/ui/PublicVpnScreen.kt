@@ -1,3 +1,4 @@
+
 package com.example.autoiprotator.ui
 
 import android.app.Activity
@@ -16,6 +17,7 @@ import com.example.autoiprotator.ProtonGuestBackend
 import com.example.autoiprotator.ProtonGuestBackendFactory
 import com.example.autoiprotator.ProtonGuestController
 import com.example.autoiprotator.ProtonGuestState
+import com.example.autoiprotator.ProtonGuestWireGuardBackend
 
 class PublicVpnScreen(private val context: Context) {
 
@@ -41,7 +43,6 @@ class PublicVpnScreen(private val context: Context) {
         )
     }
 
-    // Fixed: explicitly pass the required onStateChanged parameter.
     private val controller: ProtonGuestController by lazy {
         ProtonGuestController(
             backend = backend,
@@ -457,13 +458,13 @@ class PublicVpnScreen(private val context: Context) {
         setConnectionFailed(message)
     }
 
+    // FIXED: Local variable prevents delegated-property smart-cast error.
     fun shutdown() {
 
-        if (
-            backend is
-            com.example.autoiprotator.ProtonGuestWireGuardBackend
-        ) {
-            backend.shutdown()
+        val currentBackend = backend
+
+        if (currentBackend is ProtonGuestWireGuardBackend) {
+            currentBackend.shutdown()
         }
     }
 
