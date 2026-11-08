@@ -1,5 +1,6 @@
 [submodule "ics-openvpn"]
     path = ics-openvpn
+    branch = 0xacab_main
     url = https://0xacab.org/leap/android_libs/ics-openvpn.git
 
 [submodule "tor-android"]
