@@ -36,39 +36,63 @@ class PublicVpnScreen(private val context: Context) {
     private var busy = false
 
     private val backend: ProtonGuestBackend by lazy {
-        ProtonGuestBackendFactory.create(context.applicationContext)
+        ProtonGuestBackendFactory.create(
+            context.applicationContext
+        )
     }
 
+    // Fixed: explicitly pass the required onStateChanged parameter.
     private val controller: ProtonGuestController by lazy {
-        ProtonGuestController(backend) { state ->
-            activity.runOnUiThread {
-                updateState(state)
+        ProtonGuestController(
+            backend = backend,
+            onStateChanged = { state ->
+                activity.runOnUiThread {
+                    updateState(state)
+                }
             }
-        }
+        )
     }
 
-    private fun dp(value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int {
+        return (
+            value * context.resources.displayMetrics.density
+        ).toInt()
+    }
 
-    private fun makeBackground(color: Int, stroke: Int) =
-        GradientDrawable().apply {
+    private fun makeBackground(
+        color: Int,
+        stroke: Int
+    ): GradientDrawable {
+        return GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(20).toFloat()
             setStroke(dp(1), stroke)
         }
+    }
 
     private fun makeLabel(
         value: String,
         size: Float,
         color: Int,
         bold: Boolean = false
-    ) = TextView(context).apply {
-        text = value
-        textSize = size
-        setTextColor(color)
-        gravity = Gravity.CENTER
-        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        setPadding(dp(8), dp(8), dp(8), dp(8))
+    ): TextView {
+        return TextView(context).apply {
+            text = value
+            textSize = size
+            setTextColor(color)
+            gravity = Gravity.CENTER
+            typeface = if (bold) {
+                Typeface.DEFAULT_BOLD
+            } else {
+                Typeface.DEFAULT
+            }
+            setPadding(
+                dp(8),
+                dp(8),
+                dp(8),
+                dp(8)
+            )
+        }
     }
 
     private fun updateButton() {
@@ -82,19 +106,38 @@ class PublicVpnScreen(private val context: Context) {
         }
 
         toggleButton.background = when {
-            connected -> makeBackground(Color.rgb(75, 8, 18), red)
-            busy -> makeBackground(Color.rgb(55, 45, 5), yellow)
-            else -> makeBackground(Color.rgb(0, 75, 40), green)
+            connected -> makeBackground(
+                Color.rgb(75, 8, 18),
+                red
+            )
+
+            busy -> makeBackground(
+                Color.rgb(55, 45, 5),
+                yellow
+            )
+
+            else -> makeBackground(
+                Color.rgb(0, 75, 40),
+                green
+            )
         }
 
         toggleButton.isEnabled = !busy
     }
 
     fun createView(): LinearLayout {
+
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(20), dp(16), dp(20))
+
+            setPadding(
+                dp(16),
+                dp(20),
+                dp(16),
+                dp(20)
+            )
+
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(
@@ -109,7 +152,12 @@ class PublicVpnScreen(private val context: Context) {
         }
 
         panel.addView(
-            makeLabel("◈ PROTON GUEST VPN ◈", 20f, cyan, true),
+            makeLabel(
+                "◈ PROTON GUEST VPN ◈",
+                20f,
+                cyan,
+                true
+            ),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(50)
@@ -174,7 +222,10 @@ class PublicVpnScreen(private val context: Context) {
         )
 
         toggleButton.setOnClickListener {
-            if (busy) return@setOnClickListener
+
+            if (busy) {
+                return@setOnClickListener
+            }
 
             if (connected) {
                 setDisconnecting()
@@ -185,14 +236,17 @@ class PublicVpnScreen(private val context: Context) {
         }
 
         updateButton()
+
         return panel
     }
 
     private fun startGuestConnection() {
+
         val permissionIntent =
             android.net.VpnService.prepare(context)
 
         if (permissionIntent != null) {
+
             Toast.makeText(
                 context,
                 "Allow VPN permission first, then connect again.",
@@ -203,6 +257,7 @@ class PublicVpnScreen(private val context: Context) {
                 permissionIntent,
                 VPN_PERMISSION_REQUEST
             )
+
             return
         }
 
@@ -211,56 +266,86 @@ class PublicVpnScreen(private val context: Context) {
     }
 
     fun onPermissionResult(granted: Boolean) {
+
         if (granted) {
             setConnecting()
             controller.connect()
         } else {
-            setConnectionFailed("VPN permission denied")
+            setConnectionFailed(
+                "VPN permission denied"
+            )
         }
     }
 
     private fun updateState(state: ProtonGuestState) {
+
         when (state) {
+
             is ProtonGuestState.Disconnected -> {
+
                 connected = false
                 busy = false
+
                 statusText.text = "● DISCONNECTED"
                 statusText.setTextColor(muted)
+
                 detailText.text = "PROTON GUEST READY"
                 detailText.setTextColor(muted)
             }
 
             is ProtonGuestState.WaitingForPermission -> {
+
                 setConnecting()
-                detailText.text = "WAITING FOR VPN PERMISSION"
+
+                detailText.text =
+                    "WAITING FOR VPN PERMISSION"
             }
 
             is ProtonGuestState.CreatingGuestSession -> {
+
                 setConnecting()
-                detailText.text = "CREATING PROTON GUEST SESSION..."
+
+                detailText.text =
+                    "CREATING PROTON GUEST SESSION..."
             }
 
             is ProtonGuestState.DiscoveringServers -> {
+
                 setConnecting()
-                detailText.text = "SEARCHING PROTON SERVERS..."
+
+                detailText.text =
+                    "SEARCHING PROTON SERVERS..."
             }
 
             is ProtonGuestState.Connecting -> {
+
                 setConnecting()
-                detailText.text = "ESTABLISHING PROTON TUNNEL..."
+
+                detailText.text =
+                    "ESTABLISHING PROTON TUNNEL..."
             }
 
             is ProtonGuestState.Connected -> {
+
                 connected = true
                 busy = false
-                statusText.text = "● PROTON VPN CONNECTED"
+
+                statusText.text =
+                    "● PROTON VPN CONNECTED"
+
                 statusText.setTextColor(green)
-                detailText.text = "SERVER: ${state.serverName}"
+
+                detailText.text =
+                    "SERVER: ${state.serverName}"
+
                 detailText.setTextColor(green)
             }
 
             is ProtonGuestState.Error -> {
-                setConnectionFailed(state.message)
+
+                setConnectionFailed(
+                    state.message
+                )
             }
         }
 
@@ -268,31 +353,45 @@ class PublicVpnScreen(private val context: Context) {
     }
 
     private fun setConnecting() {
+
         connected = false
         busy = true
+
         statusText.text = "CONNECTING..."
         statusText.setTextColor(cyan)
+
         detailText.text = "STARTING PROTON GUEST"
         detailText.setTextColor(cyan)
+
         updateButton()
     }
 
     private fun setDisconnecting() {
+
         busy = true
+
         statusText.text = "DISCONNECTING..."
         statusText.setTextColor(yellow)
+
         detailText.text = "CLOSING PROTON TUNNEL"
         detailText.setTextColor(yellow)
+
         updateButton()
     }
 
-    private fun setConnectionFailed(message: String) {
+    private fun setConnectionFailed(
+        message: String
+    ) {
+
         connected = false
         busy = false
+
         statusText.text = "✕ CONNECTION FAILED"
         statusText.setTextColor(red)
+
         detailText.text = message
         detailText.setTextColor(yellow)
+
         updateButton()
 
         Toast.makeText(
@@ -303,44 +402,67 @@ class PublicVpnScreen(private val context: Context) {
     }
 
     fun setConnected(isConnected: Boolean) {
+
         connected = isConnected
         busy = false
 
         statusText.text =
-            if (connected) "● PROTON VPN CONNECTED"
-            else "● DISCONNECTED"
+            if (connected) {
+                "● PROTON VPN CONNECTED"
+            } else {
+                "● DISCONNECTED"
+            }
 
         statusText.setTextColor(
             if (connected) green else muted
         )
 
         detailText.text =
-            if (connected) "SECURE TUNNEL ACTIVE"
-            else "PROTON GUEST READY"
+            if (connected) {
+                "SECURE TUNNEL ACTIVE"
+            } else {
+                "PROTON GUEST READY"
+            }
 
         updateButton()
     }
 
-    fun setStatus(message: String, isConnected: Boolean) {
+    fun setStatus(
+        message: String,
+        isConnected: Boolean
+    ) {
+
         connected = isConnected
         busy = false
+
         statusText.text = message
+
         statusText.setTextColor(
             if (connected) green else yellow
         )
+
         detailText.text =
-            if (connected) "SECURE TUNNEL ACTIVE"
-            else "CHECK PROTON SERVICE"
+            if (connected) {
+                "SECURE TUNNEL ACTIVE"
+            } else {
+                "CHECK PROTON SERVICE"
+            }
 
         updateButton()
     }
 
-    fun setConnectionFailedPublic(message: String) {
+    fun setConnectionFailedPublic(
+        message: String
+    ) {
         setConnectionFailed(message)
     }
 
     fun shutdown() {
-        if (backend is com.example.autoiprotator.ProtonGuestWireGuardBackend) {
+
+        if (
+            backend is
+            com.example.autoiprotator.ProtonGuestWireGuardBackend
+        ) {
             backend.shutdown()
         }
     }
