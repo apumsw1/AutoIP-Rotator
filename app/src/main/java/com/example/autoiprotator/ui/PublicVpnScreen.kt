@@ -46,11 +46,17 @@ class PublicVpnScreen(private val context: Context) {
 
     private var selectedServer: RiseupServer? = null
     private var connected = false
-    private var busy = false
+    private var connecting = false
+    private var disconnecting = false
+    private var discovering = false
     private var receiverRegistered = false
+    private var permissionPending = false
 
     private val statusReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
+        override fun onReceive(
+            context: Context?,
+            intent: Intent?
+        ) {
             if (intent?.action != OpenVpnVpnService.ACTION_STATUS) return
 
             val isConnected = intent.getBooleanExtra(
@@ -63,24 +69,51 @@ class PublicVpnScreen(private val context: Context) {
             ) ?: "VPN status updated"
 
             activity.runOnUiThread {
-                connected = isConnected
-                busy = false
+                when {
+                    isConnected -> {
+                        connected = true
+                        connecting = false
+                        disconnecting = false
 
-                statusText.text = if (connected) {
-                    "● RISEUP VPN CONNECTED"
-                } else {
-                    if (message.contains("disconnect", true)) {
-                        "● DISCONNECTED"
-                    } else {
-                        "● NOT CONNECTED"
+                        statusText.text = "● RISEUP VPN CONNECTED"
+                        statusText.setTextColor(green)
+                        detailText.text = message
+                    }
+
+                    message.contains("disconnect", true) ||
+                    message.contains("teardown", true) -> {
+                        connected = false
+                        connecting = false
+                        disconnecting = false
+
+                        statusText.text = "● DISCONNECTED"
+                        statusText.setTextColor(yellow)
+                        detailText.text = message
+                    }
+
+                    message.contains("failed", true) ||
+                    message.contains("error", true) ||
+                    message.contains("exception", true) -> {
+                        connected = false
+                        connecting = false
+                        disconnecting = false
+
+                        statusText.text = "✕ CONNECTION FAILED"
+                        statusText.setTextColor(red)
+                        detailText.text = message
+                    }
+
+                    connecting -> {
+                        statusText.text = "● CONNECTING..."
+                        statusText.setTextColor(cyan)
+                        detailText.text = message
+                    }
+
+                    else -> {
+                        detailText.text = message
                     }
                 }
 
-                statusText.setTextColor(
-                    if (connected) green else yellow
-                )
-
-                detailText.text = message
                 updateButtons()
             }
         }
@@ -179,7 +212,7 @@ class PublicVpnScreen(private val context: Context) {
         statusText = label(
             "● DISCONNECTED",
             17f,
-            muted,
+            yellow,
             true
         )
 
@@ -192,7 +225,7 @@ class PublicVpnScreen(private val context: Context) {
         )
 
         detailText = label(
-            "Tap REFRESH to discover Riseup servers.",
+            "Refresh to discover available servers.",
             12f,
             muted
         )
@@ -258,12 +291,10 @@ class PublicVpnScreen(private val context: Context) {
         }
 
         connectButton.setOnClickListener {
-            if (busy) return@setOnClickListener
-
-            if (connected) {
-                disconnect()
-            } else {
-                requestPermissionAndConnect()
+            when {
+                connected -> disconnect()
+                connecting || disconnecting || discovering -> return@setOnClickListener
+                else -> requestPermissionAndConnect()
             }
         }
 
@@ -277,12 +308,14 @@ class PublicVpnScreen(private val context: Context) {
                     id: Long
                 ) {
                     selectedServer = servers.getOrNull(position)
+                    updateButtons()
                 }
 
                 override fun onNothingSelected(
                     parent: AdapterView<*>?
                 ) {
                     selectedServer = null
+                    updateButtons()
                 }
             }
 
@@ -314,9 +347,9 @@ class PublicVpnScreen(private val context: Context) {
     }
 
     private fun discoverServers() {
-        if (busy) return
+        if (discovering || connecting || disconnecting) return
 
-        busy = true
+        discovering = true
         detailText.text = "CONTACTING RISEUP API..."
         statusText.text = "● SEARCHING SERVERS"
         statusText.setTextColor(cyan)
@@ -324,14 +357,14 @@ class PublicVpnScreen(private val context: Context) {
 
         RiseupVpnClient.discoverServers { result ->
             activity.runOnUiThread {
-                busy = false
+                discovering = false
 
                 result.onSuccess { found ->
                     servers.clear()
                     servers.addAll(found)
 
                     val names = found.map {
-                        "${it.location.uppercase()}  |  ${it.name}  |  ${it.protocol.uppercase()}:${it.port}"
+                        "${it.location.uppercase()} | ${it.name} | ${it.protocol.uppercase()}:${it.port}"
                     }
 
                     serverSpinner.adapter = ArrayAdapter(
@@ -344,8 +377,7 @@ class PublicVpnScreen(private val context: Context) {
 
                     statusText.text = "● ${found.size} SERVERS FOUND"
                     statusText.setTextColor(green)
-                    detailText.text =
-                        "Select a server and press CONNECT."
+                    detailText.text = "Select a server and connect."
 
                     Toast.makeText(
                         context,
@@ -381,6 +413,8 @@ class PublicVpnScreen(private val context: Context) {
         val permissionIntent = VpnService.prepare(context)
 
         if (permissionIntent != null) {
+            permissionPending = true
+
             activity.startActivityForResult(
                 permissionIntent,
                 VPN_PERMISSION_REQUEST
@@ -391,6 +425,10 @@ class PublicVpnScreen(private val context: Context) {
     }
 
     fun onPermissionResult(granted: Boolean) {
+        if (!permissionPending) return
+
+        permissionPending = false
+
         if (granted) {
             connectSelectedServer()
         } else {
@@ -399,6 +437,8 @@ class PublicVpnScreen(private val context: Context) {
     }
 
     private fun connectSelectedServer() {
+        if (connecting || connected) return
+
         val server = selectedServer
 
         if (server == null) {
@@ -406,7 +446,9 @@ class PublicVpnScreen(private val context: Context) {
             return
         }
 
-        busy = true
+        connecting = true
+        disconnecting = false
+
         statusText.text = "● CONNECTING..."
         statusText.setTextColor(cyan)
         detailText.text = "REQUESTING RISEUP CERTIFICATE..."
@@ -421,11 +463,11 @@ class PublicVpnScreen(private val context: Context) {
                     statusText.text = "● STARTING VPN TUNNEL"
                     statusText.setTextColor(yellow)
                     detailText.text =
-                        "Waiting for OpenVPN connection status..."
+                        "Waiting for OpenVPN tunnel confirmation..."
                 }
 
                 result.onFailure { error ->
-                    busy = false
+                    connecting = false
                     showError(
                         error.message ?: "Connection failed."
                     )
@@ -437,17 +479,29 @@ class PublicVpnScreen(private val context: Context) {
     }
 
     private fun disconnect() {
-        busy = true
+        if (disconnecting) return
+
+        disconnecting = true
+        connecting = false
+
         statusText.text = "● DISCONNECTING..."
         statusText.setTextColor(yellow)
         detailText.text = "Closing VPN tunnel..."
         updateButtons()
 
-        RiseupVpnClient.disconnect(context)
+        try {
+            RiseupVpnClient.disconnect(context)
+        } catch (error: Exception) {
+            disconnecting = false
+            showError(
+                error.message ?: "Disconnect failed."
+            )
+        }
     }
 
     private fun showError(message: String) {
-        busy = false
+        connecting = false
+        disconnecting = false
         connected = false
 
         statusText.text = "✕ CONNECTION FAILED"
@@ -467,24 +521,34 @@ class PublicVpnScreen(private val context: Context) {
         if (!::connectButton.isInitialized) return
 
         connectButton.text = when {
-            busy -> "PLEASE WAIT..."
             connected -> "DISCONNECT RISEUP VPN"
+            connecting -> "CONNECTING..."
+            disconnecting -> "DISCONNECTING..."
             else -> "⚡ CONNECT RISEUP VPN"
         }
 
-        connectButton.isEnabled = !busy &&
-            (connected || selectedServer != null)
+        connectButton.isEnabled =
+            connected ||
+            (
+                !connecting &&
+                !disconnecting &&
+                !discovering &&
+                selectedServer != null
+            )
 
-        refreshButton.isEnabled = !busy
-        serverSpinner.isEnabled = !busy && !connected
+        refreshButton.isEnabled =
+            !discovering && !connecting && !disconnecting && !connected
+
+        serverSpinner.isEnabled =
+            !connecting && !disconnecting && !connected
 
         connectButton.background = background(
-            if (connected) {
+            if (connected || disconnecting) {
                 Color.rgb(75, 8, 18)
             } else {
                 Color.rgb(0, 75, 40)
             },
-            if (connected) red else green
+            if (connected || disconnecting) red else green
         )
     }
 
