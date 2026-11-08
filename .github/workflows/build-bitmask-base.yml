@@ -1,0 +1,62 @@
+
+name: Build Bitmask VPN base
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout AutoIP Rotator
+        uses: actions/checkout@v4
+
+      - name: Checkout Bitmask Android
+        uses: actions/checkout@v4
+        with:
+          repository: leapcode/bitmask_android
+          ref: master
+          path: bitmask_android
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358"
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make gcc g++ swig file lib32stdc++6 lib32z1 autoconf autogen automake autopoint gettext-base libtool patch pkg-config
+
+      - name: Build native dependencies
+        working-directory: bitmask_android
+        run: |
+          chmod +x ./gradlew ./scripts/build_deps.sh
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          ./scripts/build_deps.sh
+
+      - name: Build APK
+        working-directory: bitmask_android
+        run: ./gradlew --no-daemon assembleCustomProductionFatDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitmask-custom-production-debug
+          path: bitmask_android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
