@@ -1,11 +1,6 @@
 package com.example.autoiprotator
 
-/**
- * Supplies guest session and authorized Proton VPN server configuration.
- * Implementations must use an officially supported Proton authentication flow.
- */
 interface ProtonGuestConfigSource {
-
     fun createGuestSession(
         callback: (Result<ProtonGuestSession>) -> Unit
     )
