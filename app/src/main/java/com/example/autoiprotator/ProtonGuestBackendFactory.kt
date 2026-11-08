@@ -1,4 +1,3 @@
-
 package com.example.autoiprotator
 
 import android.content.Context
