@@ -1,3 +1,4 @@
+
 package com.example.autoiprotator
 
 import android.content.Context
@@ -7,12 +8,10 @@ import android.os.Build
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.net.URL
-import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 data class RiseupServer(
@@ -37,10 +36,6 @@ object RiseupVpnClient {
     private const val CERT_URL =
         "$API_BASE/cert"
 
-    /**
-     * Fetches the Riseup CA certificate, verifies the API TLS connection,
-     * and returns available OpenVPN gateways.
-     */
     fun discoverServers(
         callback: (Result<List<RiseupServer>>) -> Unit
     ) {
@@ -58,6 +53,7 @@ object RiseupVpnClient {
 
                 for (i in 0 until gateways.length()) {
                     val gateway = gateways.getJSONObject(i)
+
                     val capabilities =
                         gateway.optJSONObject("capabilities")
                             ?: continue
@@ -69,9 +65,9 @@ object RiseupVpnClient {
                     val location =
                         gateway.optString("location", "Unknown")
 
-                    val selection = findOpenVpnTransport(
-                        capabilities
-                    ) ?: continue
+                    val selection =
+                        findOpenVpnTransport(capabilities)
+                            ?: continue
 
                     servers.add(
                         RiseupServer(
@@ -95,10 +91,6 @@ object RiseupVpnClient {
         }.start()
     }
 
-    /**
-     * Downloads fresh client credentials and creates a real OpenVPN
-     * profile before starting the existing OpenVPN service.
-     */
     fun connect(
         context: Context,
         server: RiseupServer,
@@ -107,7 +99,7 @@ object RiseupVpnClient {
         Thread {
             val result = runCatching {
                 check(VpnService.prepare(context) == null) {
-                    "VPN permission is required. Grant VPN permission first."
+                    "VPN permission is required."
                 }
 
                 val ca = downloadCaCertificate()
@@ -142,6 +134,10 @@ object RiseupVpnClient {
                 } else {
                     context.startService(intent)
                 }
+
+                // Fix: startService returns ComponentName?,
+                // but this callback requires Result<Unit>.
+                Unit
             }
 
             callback(result)
@@ -156,7 +152,11 @@ object RiseupVpnClient {
             action = OpenVpnVpnService.ACTION_DISCONNECT
         }
 
-        context.startService(intent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
     }
 
     private fun downloadCaCertificate(): X509Certificate {
@@ -168,10 +168,6 @@ object RiseupVpnClient {
         ) as X509Certificate
     }
 
-    /**
-     * Trusts the Riseup CA for API calls while retaining normal
-     * HTTPS hostname verification.
-     */
     private fun createPinnedSslContext(
         ca: X509Certificate
     ): SSLContext {
@@ -186,7 +182,7 @@ object RiseupVpnClient {
                 authType: String
             ) {
                 throw UnsupportedOperationException(
-                    "Client certificate validation is not used here."
+                    "Client certificate validation is not used."
                 )
             }
 
@@ -198,8 +194,7 @@ object RiseupVpnClient {
                     "The API server supplied no certificate."
                 }
 
-                val certificates = chain
-                    .filterNot { it == ca }
+                val certificates = chain.filterNot { it == ca }
 
                 val certPath = CertificateFactory
                     .getInstance("X.509")
@@ -240,18 +235,19 @@ object RiseupVpnClient {
             connection.connectTimeout = 20000
             connection.readTimeout = 30000
             connection.requestMethod = "GET"
+
             connection.setRequestProperty(
                 "Accept",
                 "application/json, application/x-pem-file, */*"
             )
+
             connection.setRequestProperty(
                 "User-Agent",
                 "AutoIP-Rotator/1.0"
             )
 
             if (ssl != null) {
-                connection.sslSocketFactory =
-                    ssl.socketFactory
+                connection.sslSocketFactory = ssl.socketFactory
             }
 
             val status = connection.responseCode
@@ -263,6 +259,7 @@ object RiseupVpnClient {
             return connection.inputStream
                 .bufferedReader()
                 .use { it.readText() }
+
         } finally {
             connection.disconnect()
         }
@@ -273,8 +270,7 @@ object RiseupVpnClient {
     ): Pair<String, Int>? {
 
         val transport = capabilities.optJSONArray("transport")
-        val fallbackPorts =
-            capabilities.optJSONArray("ports")
+        val fallbackPorts = capabilities.optJSONArray("ports")
         val fallbackProtocols =
             capabilities.optJSONArray("protocols")
 
@@ -285,10 +281,12 @@ object RiseupVpnClient {
                 if (item is String) {
                     if (!item.equals("openvpn", true)) continue
 
-                    val protocol = firstString(fallbackProtocols)
-                        ?: continue
-                    val port = firstString(fallbackPorts)
-                        ?.toIntOrNull() ?: continue
+                    val protocol =
+                        firstString(fallbackProtocols) ?: continue
+
+                    val port =
+                        firstString(fallbackPorts)?.toIntOrNull()
+                            ?: continue
 
                     if (protocol in listOf("udp", "tcp")) {
                         return protocol to port
@@ -300,14 +298,13 @@ object RiseupVpnClient {
                             .equals("openvpn", true)
                     ) continue
 
-                    val protocols =
-                        item.optJSONArray("protocols")
+                    val protocols = item.optJSONArray("protocols")
                     val ports = item.optJSONArray("ports")
 
-                    val protocol = firstString(protocols)
-                        ?: continue
-                    val port = firstString(ports)
-                        ?.toIntOrNull() ?: continue
+                    val protocol = firstString(protocols) ?: continue
+                    val port =
+                        firstString(ports)?.toIntOrNull()
+                            ?: continue
 
                     if (protocol in listOf("udp", "tcp")) {
                         return protocol to port
@@ -319,9 +316,13 @@ object RiseupVpnClient {
         return null
     }
 
-    private fun firstString(array: org.json.JSONArray?): String? {
+    private fun firstString(
+        array: org.json.JSONArray?
+    ): String? {
         if (array == null || array.length() == 0) return null
-        return array.optString(0).takeIf { it.isNotBlank() }
+
+        return array.optString(0)
+            .takeIf { it.isNotBlank() }
     }
 
     private fun buildOpenVpnProfile(
@@ -331,9 +332,11 @@ object RiseupVpnClient {
         credentialPem: String
     ): String {
 
-        require(server.ipAddress.matches(
-            Regex("""[0-9a-fA-F:.]+""")
-        )) {
+        require(
+            server.ipAddress.matches(
+                Regex("""[0-9a-fA-F:.]+""")
+            )
+        ) {
             "Invalid VPN server address."
         }
 
@@ -351,10 +354,7 @@ object RiseupVpnClient {
         ).find(credentialPem)?.value
             ?: error("Riseup client private key was not found.")
 
-        val caText = caPem.let {
-            // Re-fetch the original PEM so the complete CA block is embedded.
-            httpsGet(CA_URL)
-        }
+        val caText = httpsGet(CA_URL)
 
         val options =
             eip.optJSONObject("openvpn_configuration")
@@ -378,7 +378,9 @@ object RiseupVpnClient {
         profile.appendLine("client")
         profile.appendLine("dev tun")
         profile.appendLine("proto ${server.protocol}")
-        profile.appendLine("remote ${server.ipAddress} ${server.port}")
+        profile.appendLine(
+            "remote ${server.ipAddress} ${server.port}"
+        )
         profile.appendLine("resolv-retry infinite")
         profile.appendLine("nobind")
         profile.appendLine("persist-key")
@@ -392,7 +394,11 @@ object RiseupVpnClient {
 
             if (text.isBlank()) continue
 
-            require(text.matches(Regex("""[A-Za-z0-9_.:+/ -]{1,100}"""))) {
+            require(
+                text.matches(
+                    Regex("""[A-Za-z0-9_.:+/ -]{1,100}""")
+                )
+            ) {
                 "Invalid OpenVPN option received: $key"
             }
 
