@@ -1,0 +1,42 @@
+
+name: Build Riseup Bitmask Android
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout AutoIP Rotator
+        uses: actions/checkout@v4
+
+      - name: Install Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Checkout Bitmask Android source
+        uses: actions/checkout@v4
+        with:
+          repository: leapcode/bitmask_android
+          ref: master
+          path: bitmask_android
+          submodules: recursive
+
+      - name: Install Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28c
+          add-to-path: true
+
+      - name: Show source and submodules
+        run: |
+          cd bitmask_android
+          git submodule status
+          ls -la
