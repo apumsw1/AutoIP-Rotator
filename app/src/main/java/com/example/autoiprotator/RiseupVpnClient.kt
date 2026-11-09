@@ -11,11 +11,13 @@ import java.io.ByteArrayInputStream
 import java.net.InetAddress
 import java.net.URL
 import java.security.KeyStore
+import java.security.cert.CertificateException
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 
 data class RiseupServer(
     val name: String,
@@ -40,6 +42,16 @@ object RiseupVpnClient {
         synchronized(this) {
             cachedSslContext?.let { return it }
 
+            val systemFactory = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm()
+            )
+            systemFactory.init(null as KeyStore?)
+
+            val systemTrust = systemFactory.trustManagers
+                .filterIsInstance<X509TrustManager>()
+                .firstOrNull()
+                ?: error("Android system trust manager unavailable.")
+
             val caCertificate = parseCaCertificate(RiseupCa.PEM)
 
             require(caCertificate.basicConstraints >= 0) {
@@ -54,24 +66,63 @@ object RiseupVpnClient {
                 "Bundled Riseup CA certificate is not currently valid."
             }
 
-            val keyStore = KeyStore.getInstance(
+            val riseupStore = KeyStore.getInstance(
                 KeyStore.getDefaultType()
             )
-            keyStore.load(null, null)
-            keyStore.setCertificateEntry(
+            riseupStore.load(null, null)
+            riseupStore.setCertificateEntry(
                 "riseup-provider-ca",
                 caCertificate
             )
 
-            val trustFactory = TrustManagerFactory.getInstance(
+            val riseupFactory = TrustManagerFactory.getInstance(
                 TrustManagerFactory.getDefaultAlgorithm()
             )
-            trustFactory.init(keyStore)
+            riseupFactory.init(riseupStore)
+
+            val riseupTrust = riseupFactory.trustManagers
+                .filterIsInstance<X509TrustManager>()
+                .firstOrNull()
+                ?: error("Riseup trust manager unavailable.")
+
+            val combinedTrust = object : X509TrustManager {
+
+                override fun getAcceptedIssuers(): Array<X509Certificate> {
+                    return (
+                        systemTrust.acceptedIssuers.toList() +
+                        riseupTrust.acceptedIssuers.toList()
+                    ).distinctBy {
+                        it.subjectX500Principal.name
+                    }.toTypedArray()
+                }
+
+                override fun checkClientTrusted(
+                    chain: Array<out X509Certificate>,
+                    authType: String
+                ) {
+                    try {
+                        systemTrust.checkClientTrusted(chain, authType)
+                    } catch (_: CertificateException) {
+                        riseupTrust.checkClientTrusted(chain, authType)
+                    }
+                }
+
+                override fun checkServerTrusted(
+                    chain: Array<out X509Certificate>,
+                    authType: String
+                ) {
+                    try {
+                        systemTrust.checkServerTrusted(chain, authType)
+                    } catch (_: CertificateException) {
+                        riseupTrust.checkServerTrusted(chain, authType)
+                    }
+                }
+            }
 
             val sslContext = SSLContext.getInstance("TLS")
             sslContext.init(
                 null,
-                trustFactory.trustManagers,
+                arrayOf(combinedTrust),
                 null
             )
 
@@ -242,8 +293,7 @@ object RiseupVpnClient {
                 "AutoIP-Rotator/1.0"
             )
 
-            // Use the bundled Riseup CA.
-            // Default HTTPS hostname verification remains enabled.
+            // Keep normal HTTPS hostname verification enabled.
             connection.sslSocketFactory =
                 riseupTrust.socketFactory
 
@@ -321,7 +371,6 @@ object RiseupVpnClient {
             }
         }
 
-        // Support older capability format.
         val legacy = capabilities.optJSONArray("transport")
 
         val hasOpenVpn = legacy != null &&
