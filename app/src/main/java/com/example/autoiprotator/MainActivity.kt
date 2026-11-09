@@ -1,6 +1,7 @@
 
 package com.example.autoiprotator
 
+import android.animation.ArgbEvaluator
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
@@ -36,6 +37,7 @@ class MainActivity : Activity() {
     private lateinit var monitorText: TextView
     private lateinit var statusIcon: TextView
     private lateinit var mainStatusTitle: TextView
+    private lateinit var creationLabel: TextView
 
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
@@ -168,6 +170,45 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun animateCreationText(view: TextView) {
+
+        ObjectAnimator.ofFloat(
+            view,
+            View.TRANSLATION_Y,
+            0f,
+            -dp(5).toFloat(),
+            0f
+        ).apply {
+            duration = 1800
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.RESTART
+            start()
+        }
+
+        val colors = intArrayOf(
+            Color.rgb(255, 190, 40),
+            Color.rgb(0, 225, 255),
+            Color.rgb(100, 145, 255),
+            Color.rgb(210, 90, 255),
+            Color.rgb(255, 190, 40)
+        )
+
+        ValueAnimator.ofObject(
+            ArgbEvaluator(),
+            *colors.toTypedArray()
+        ).apply {
+            duration = 5000
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.RESTART
+
+            addUpdateListener {
+                view.setTextColor(it.animatedValue as Int)
+            }
+
+            start()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         engine = VpnEngine(applicationContext)
@@ -198,6 +239,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
+        // LEFT SHIELD LOGO
         header.addView(
             label("🛡", 38f, cyan, true),
             LinearLayout.LayoutParams(dp(58), dp(68))
@@ -209,18 +251,26 @@ class MainActivity : Activity() {
         }
 
         titleBox.addView(label("AUTOIP ROTATOR", 23f, cyan, true))
-        titleBox.addView(
-            label("♛  M'r ApurbA Creation  ♛", 13f, warning, true)
+
+        // FLOATING, COLOR-CHANGING CREATION TEXT
+        creationLabel = label(
+            "♛  M'r ApurbA Creation  ♛",
+            13f,
+            warning,
+            true
         )
+
+        titleBox.addView(creationLabel)
 
         header.addView(
             titleBox,
             LinearLayout.LayoutParams(0, dp(70), 1f)
         )
 
+        // RIGHT SIDE: SAME SHIELD LOGO
         header.addView(
-            label("⚙", 31f, cyan, true),
-            LinearLayout.LayoutParams(dp(48), dp(55))
+            label("🛡", 38f, cyan, true),
+            LinearLayout.LayoutParams(dp(48), dp(68))
         )
 
         addCard(root, header)
@@ -531,6 +581,7 @@ class MainActivity : Activity() {
 
         selectPersonal()
         animateView(root.getChildAt(0))
+        animateCreationText(creationLabel)
     }
 
     private fun selectPersonal() {
