@@ -17,9 +17,12 @@ import java.net.InetAddress
 class OpenVpnVpnService : VpnService() {
 
     companion object {
-        const val ACTION_CONNECT = "com.example.autoiprotator.OPENVPN_CONNECT"
-        const val ACTION_DISCONNECT = "com.example.autoiprotator.OPENVPN_DISCONNECT"
-        const val ACTION_STATUS = "com.example.autoiprotator.OPENVPN_STATUS"
+        const val ACTION_CONNECT =
+            "com.example.autoiprotator.OPENVPN_CONNECT"
+        const val ACTION_DISCONNECT =
+            "com.example.autoiprotator.OPENVPN_DISCONNECT"
+        const val ACTION_STATUS =
+            "com.example.autoiprotator.OPENVPN_STATUS"
 
         const val EXTRA_CONFIG = "openvpn_config"
         const val EXTRA_CONNECTED = "openvpn_connected"
@@ -58,37 +61,70 @@ class OpenVpnVpnService : VpnService() {
                 lastNativeStatus = status
                 Log.i(TAG, "OpenVPN status: $status")
 
-                val normalized = status.lowercase()
+                val normalized = status
+                    .substringBefore(":")
+                    .trim()
+                    .uppercase()
 
-                val failed = listOf(
-                    "auth_failed",
+                val isConnectedEvent =
+                    normalized == "CONNECTED" ||
+                    normalized == "CONNECTION_ESTABLISHED"
+
+                val isDisconnectedEvent =
+                    normalized == "DISCONNECTED" ||
+                    normalized == "CONNECTION_CLOSED" ||
+                    normalized == "CONNECTION_TIMEOUT" ||
+                    normalized == "CONNECTION_FAILED" ||
+                    normalized == "AUTH_FAILED" ||
+                    normalized == "AUTHENTICATION_FAILED"
+
+                val isFatalMessage = listOf(
                     "authentication failed",
-                    "connection failed",
-                    "fatal",
-                    "error:",
-                    "disconnected",
+                    "auth_failed",
                     "connection timeout",
                     "tls error",
-                    "server poll timeout"
-                ).any { normalized.contains(it) }
-
-                if (failed && !connected) {
-                    monitoringNativeStatus = false
-                    publishStatus(false, status)
-                    disconnectNativeOnly()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                    return
+                    "server poll timeout",
+                    "connection error:",
+                    "fatal error:"
+                ).any {
+                    status.contains(it, ignoreCase = true)
                 }
 
-                if (!connected) {
-                    publishStatus(false, status)
-                    updateNotification(status.take(100))
+                when {
+                    isConnectedEvent -> {
+                        connected = true
+                        publishStatus(true, "Riseup VPN connected")
+                        updateNotification("Riseup VPN connected")
+                    }
+
+                    isDisconnectedEvent || isFatalMessage -> {
+                        connected = false
+                        publishStatus(false, status)
+                        updateNotification(status.take(100))
+
+                        monitoringNativeStatus = false
+                        statusHandler.removeCallbacks(this)
+
+                        disconnectNativeOnly()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                        return
+                    }
+
+                    else -> {
+                        if (!connected) {
+                            publishStatus(false, status)
+                            updateNotification(status.take(100))
+                        }
+                    }
                 }
             }
 
             if (monitoringNativeStatus) {
-                statusHandler.postDelayed(this, STATUS_INTERVAL)
+                statusHandler.postDelayed(
+                    this,
+                    STATUS_INTERVAL
+                )
             }
         }
     }
@@ -111,11 +147,16 @@ class OpenVpnVpnService : VpnService() {
         startId: Int
     ): Int {
         when (intent?.action) {
+
             ACTION_CONNECT -> {
-                val config = intent.getStringExtra(EXTRA_CONFIG)
+                val config =
+                    intent.getStringExtra(EXTRA_CONFIG)
 
                 if (config.isNullOrBlank()) {
-                    publishStatus(false, "OpenVPN configuration is empty")
+                    publishStatus(
+                        false,
+                        "OpenVPN configuration is empty"
+                    )
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
@@ -123,7 +164,9 @@ class OpenVpnVpnService : VpnService() {
                 try {
                     startForeground(
                         NOTIFICATION_ID,
-                        createNotification("Connecting to Riseup VPN...")
+                        createNotification(
+                            "Connecting to Riseup VPN..."
+                        )
                     )
                 } catch (error: Exception) {
                     Log.e(TAG, "Foreground start failed", error)
@@ -135,7 +178,11 @@ class OpenVpnVpnService : VpnService() {
                     return START_NOT_STICKY
                 }
 
-                publishStatus(false, "Starting OpenVPN connection...")
+                publishStatus(
+                    false,
+                    "Starting OpenVPN connection..."
+                )
+
                 connectVpn(config)
             }
 
@@ -158,6 +205,7 @@ class OpenVpnVpnService : VpnService() {
             putExtra(EXTRA_CONNECTED, isConnected)
             putExtra(EXTRA_MESSAGE, message)
         }
+
         sendBroadcast(intent)
     }
 
@@ -180,7 +228,9 @@ class OpenVpnVpnService : VpnService() {
         }
     }
 
-    private fun createNotification(message: String): Notification {
+    private fun createNotification(
+        message: String
+    ): Notification {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("AutoIP Rotator")
@@ -216,31 +266,45 @@ class OpenVpnVpnService : VpnService() {
             try {
                 disconnectNativeOnly()
 
-                val result = OpenVpn3Bridge.start(config, this)
+                val result =
+                    OpenVpn3Bridge.start(config, this)
 
                 result.onSuccess {
                     Log.i(TAG, "OpenVPN engine started")
-                    updateNotification("Waiting for VPN tunnel...")
-                    publishStatus(false, "Waiting for VPN tunnel...")
+
+                    updateNotification(
+                        "Waiting for OpenVPN connection..."
+                    )
+
+                    publishStatus(
+                        false,
+                        "Waiting for OpenVPN connection..."
+                    )
+
                     startNativeStatusMonitor()
                 }
 
                 result.onFailure { error ->
                     Log.e(TAG, "OpenVPN start failed", error)
+
                     publishStatus(
                         false,
                         error.message ?: "OpenVPN start failed"
                     )
+
                     disconnectNativeOnly()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }
+
             } catch (error: Exception) {
                 Log.e(TAG, "OpenVPN connection error", error)
+
                 publishStatus(
                     false,
                     error.message ?: "VPN connection error"
                 )
+
                 disconnectNativeOnly()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
@@ -262,6 +326,7 @@ class OpenVpnVpnService : VpnService() {
 
     private fun disconnectVpn() {
         disconnectNativeOnly()
+
         publishStatus(false, "VPN disconnected")
         Log.i(TAG, "VPN disconnect requested")
     }
@@ -269,7 +334,8 @@ class OpenVpnVpnService : VpnService() {
     @Synchronized
     fun nativeNewTunnel(): Boolean {
         return try {
-            vpnBuilder = Builder().setSession("AutoIP Rotator")
+            vpnBuilder =
+                Builder().setSession("AutoIP Rotator")
             true
         } catch (error: Exception) {
             Log.e(TAG, "Tunnel creation failed", error)
@@ -299,6 +365,7 @@ class OpenVpnVpnService : VpnService() {
         return try {
             require(address.isNotBlank())
             require(prefix in 0..if (ipv6) 128 else 32)
+
             vpnBuilder?.addAddress(address, prefix) != null
         } catch (error: Exception) {
             Log.e(TAG, "Add address failed", error)
@@ -306,7 +373,9 @@ class OpenVpnVpnService : VpnService() {
         }
     }
 
-    fun nativeSetRouteMetricDefault(metric: Int): Boolean {
+    fun nativeSetRouteMetricDefault(
+        metric: Int
+    ): Boolean {
         return true
     }
 
@@ -319,8 +388,13 @@ class OpenVpnVpnService : VpnService() {
         return try {
             val builder = vpnBuilder ?: return false
 
-            if (ipv4) builder.addRoute("0.0.0.0", 0)
-            if (ipv6) builder.addRoute("::", 0)
+            if (ipv4) {
+                builder.addRoute("0.0.0.0", 0)
+            }
+
+            if (ipv6) {
+                builder.addRoute("::", 0)
+            }
 
             true
         } catch (error: Exception) {
@@ -362,6 +436,7 @@ class OpenVpnVpnService : VpnService() {
                     )
                 )
             }
+
             true
         } catch (error: Exception) {
             Log.e(TAG, "Exclude route failed", error)
@@ -373,7 +448,10 @@ class OpenVpnVpnService : VpnService() {
     fun nativeAddDns(address: String): Boolean {
         return try {
             if (address.isBlank()) return false
-            val dnsAddress = InetAddress.getByName(address)
+
+            val dnsAddress =
+                InetAddress.getByName(address)
+
             vpnBuilder?.addDnsServer(dnsAddress) != null
         } catch (error: Exception) {
             Log.e(TAG, "DNS setup failed: $address", error)
@@ -385,6 +463,7 @@ class OpenVpnVpnService : VpnService() {
     fun nativeSetMtu(mtu: Int): Boolean {
         return try {
             if (mtu !in 576..9000) return false
+
             vpnBuilder?.setMtu(mtu) != null
         } catch (error: Exception) {
             Log.e(TAG, "MTU setup failed", error)
@@ -396,6 +475,7 @@ class OpenVpnVpnService : VpnService() {
     fun nativeSetSession(name: String): Boolean {
         return try {
             if (name.isBlank()) return false
+
             vpnBuilder?.setSession(name) != null
         } catch (error: Exception) {
             Log.e(TAG, "Session setup failed", error)
@@ -412,19 +492,23 @@ class OpenVpnVpnService : VpnService() {
                 builder.establish() ?: return -1
 
             vpnBuilder = null
-            connected = true
+
+            // TUN created does not mean OpenVPN is connected.
+            // CONNECTED is published only after native engine status.
 
             Log.i(TAG, "Android VPN interface established")
-            updateNotification("VPN tunnel established")
-            publishStatus(true, "VPN tunnel established")
 
             descriptor.detachFd()
+
         } catch (error: Exception) {
             Log.e(TAG, "VPN establish failed", error)
+
             publishStatus(
                 false,
-                error.message ?: "VPN tunnel establishment failed"
+                error.message
+                    ?: "VPN tunnel establishment failed"
             )
+
             -1
         }
     }
@@ -444,14 +528,20 @@ class OpenVpnVpnService : VpnService() {
         connected = false
 
         Log.i(TAG, "Native tunnel teardown")
-        publishStatus(false, "VPN tunnel disconnected")
+
+        publishStatus(
+            false,
+            "VPN tunnel disconnected"
+        )
     }
 
     override fun onDestroy() {
         monitoringNativeStatus = false
         statusHandler.removeCallbacks(nativeStatusMonitor)
+
         disconnectVpn()
         stopForeground(STOP_FOREGROUND_REMOVE)
+
         super.onDestroy()
     }
 }
