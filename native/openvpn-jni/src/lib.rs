@@ -1,3 +1,4 @@
+
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::{jint, jstring};
 use jni::{JNIEnv, JavaVM};
@@ -6,14 +7,22 @@ use openvpn_connect::{
     Client, Config, DnsOptions, Event, EventHandler, TunBuilder,
 };
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
+};
 use std::thread;
 
 static CLIENT: OnceLock<Mutex<Option<Client>>> = OnceLock::new();
 static STATUS: OnceLock<Mutex<String>> = OnceLock::new();
+static CONNECTED: AtomicBool = AtomicBool::new(false);
 
 fn client_store() -> &'static Mutex<Option<Client>> {
     CLIENT.get_or_init(|| Mutex::new(None))
+}
+
+fn status_store() -> &'static Mutex<String> {
+    STATUS.get_or_init(|| Mutex::new("Disconnected".into()))
 }
 
 fn set_status(value: impl Into<String>) {
@@ -22,8 +31,33 @@ fn set_status(value: impl Into<String>) {
     }
 }
 
-fn status_store() -> &'static Mutex<String> {
-    STATUS.get_or_init(|| Mutex::new("Disconnected".into()))
+fn set_event_status(name: &str, info: &str) {
+    let event_name = name.trim().to_ascii_uppercase();
+
+    let is_connected = matches!(
+        event_name.as_str(),
+        "CONNECTED" | "CONNECTION_ESTABLISHED"
+    );
+
+    let is_disconnected = matches!(
+        event_name.as_str(),
+        "DISCONNECTED"
+            | "CONNECTION_CLOSED"
+            | "CONNECTION_TIMEOUT"
+            | "CONNECTION_FAILED"
+            | "AUTH_FAILED"
+            | "AUTHENTICATION_FAILED"
+    );
+
+    if is_connected {
+        CONNECTED.store(true, Ordering::SeqCst);
+        set_status(format!("CONNECTED: {}", info));
+    } else if is_disconnected {
+        CONNECTED.store(false, Ordering::SeqCst);
+        set_status(format!("{}: {}", name, info));
+    } else if !CONNECTED.load(Ordering::SeqCst) {
+        set_status(format!("{}: {}", name, info));
+    }
 }
 
 #[derive(Clone)]
@@ -33,7 +67,12 @@ struct AndroidCallbacks {
 }
 
 impl AndroidCallbacks {
-    fn call_bool(&self, name: &str, sig: &str, args: &[JValue]) -> bool {
+    fn call_bool(
+        &self,
+        name: &str,
+        sig: &str,
+        args: &[JValue],
+    ) -> bool {
         let Ok(mut env) = self.vm.attach_current_thread() else {
             return false;
         };
@@ -43,7 +82,12 @@ impl AndroidCallbacks {
             .unwrap_or(false)
     }
 
-    fn call_int(&self, name: &str, sig: &str, args: &[JValue]) -> i32 {
+    fn call_int(
+        &self,
+        name: &str,
+        sig: &str,
+        args: &[JValue],
+    ) -> i32 {
         let Ok(mut env) = self.vm.attach_current_thread() else {
             return -1;
         };
@@ -53,13 +97,27 @@ impl AndroidCallbacks {
             .unwrap_or(-1)
     }
 
-    fn call_void(&self, name: &str, sig: &str, args: &[JValue]) {
+    fn call_void(
+        &self,
+        name: &str,
+        sig: &str,
+        args: &[JValue],
+    ) {
         if let Ok(mut env) = self.vm.attach_current_thread() {
-            let _ = env.call_method(self.service.as_obj(), name, sig, args);
+            let _ = env.call_method(
+                self.service.as_obj(),
+                name,
+                sig,
+                args,
+            );
         }
     }
 
-    fn call_string_bool(&self, name: &str, value: &str) -> bool {
+    fn call_string_bool(
+        &self,
+        name: &str,
+        value: &str,
+    ) -> bool {
         let Ok(mut env) = self.vm.attach_current_thread() else {
             return false;
         };
@@ -87,7 +145,11 @@ struct AndroidTunnel {
 
 impl TunBuilder for AndroidTunnel {
     fn new_tunnel(&self) -> bool {
-        self.callbacks.call_bool("nativeNewTunnel", "()Z", &[])
+        self.callbacks.call_bool(
+            "nativeNewTunnel",
+            "()Z",
+            &[],
+        )
     }
 
     fn set_layer(&self, layer: i32) -> bool {
@@ -98,7 +160,11 @@ impl TunBuilder for AndroidTunnel {
         )
     }
 
-    fn set_remote_address(&self, address: &str, ipv6: bool) -> bool {
+    fn set_remote_address(
+        &self,
+        address: &str,
+        ipv6: bool,
+    ) -> bool {
         let Ok(mut env) = self.callbacks.vm.attach_current_thread() else {
             return false;
         };
@@ -169,7 +235,12 @@ impl TunBuilder for AndroidTunnel {
         )
     }
 
-    fn reroute_gateway(&self, ipv4: bool, ipv6: bool, flags: u32) -> bool {
+    fn reroute_gateway(
+        &self,
+        ipv4: bool,
+        ipv6: bool,
+        flags: u32,
+    ) -> bool {
         self.callbacks.call_bool(
             "nativeRerouteGateway",
             "(ZZI)Z",
@@ -269,11 +340,18 @@ impl TunBuilder for AndroidTunnel {
     }
 
     fn set_session_name(&self, name: &str) -> bool {
-        self.callbacks.call_string_bool("nativeSetSession", name)
+        self.callbacks.call_string_bool(
+            "nativeSetSession",
+            name,
+        )
     }
 
     fn establish(&self) -> i32 {
-        self.callbacks.call_int("nativeEstablish", "()I", &[])
+        self.callbacks.call_int(
+            "nativeEstablish",
+            "()I",
+            &[],
+        )
     }
 
     fn persist(&self) -> bool {
@@ -289,16 +367,29 @@ impl TunBuilder for AndroidTunnel {
     }
 }
 
+struct AndroidTunnelHandler {
+    callbacks: AndroidCallbacks,
+    tunnel: AndroidTunnel,
+}
+
 impl EventHandler for AndroidTunnelHandler {
     fn event(&self, event: Event) {
-        set_status(format!("{}: {}", event.name, event.info));
+        set_event_status(&event.name, &event.info);
     }
 
     fn log(&self, text: &str) {
-        set_status(text.to_string());
+        // Debug logs must not overwrite a confirmed connection status.
+        if !CONNECTED.load(Ordering::SeqCst) {
+            set_status(text.to_string());
+        }
     }
 
-    fn socket_protect(&self, socket: isize, _remote: &str, _ipv6: bool) -> bool {
+    fn socket_protect(
+        &self,
+        socket: isize,
+        _remote: &str,
+        _ipv6: bool,
+    ) -> bool {
         self.callbacks.call_bool(
             "nativeProtectSocket",
             "(I)Z",
@@ -309,11 +400,6 @@ impl EventHandler for AndroidTunnelHandler {
     fn tun_builder(&self) -> Option<&dyn TunBuilder> {
         Some(&self.tunnel)
     }
-}
-
-struct AndroidTunnelHandler {
-    callbacks: AndroidCallbacks,
-    tunnel: AndroidTunnel,
 }
 
 #[no_mangle]
@@ -379,7 +465,9 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStart
     };
 
     if !evaluation.autologin {
-        set_status("This profile requires username/password credentials");
+        set_status(
+            "This profile requires username/password credentials",
+        );
         return -7;
     }
 
@@ -397,15 +485,37 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStart
         *stored = Some(control);
     }
 
+    CONNECTED.store(false, Ordering::SeqCst);
     set_status("Connecting...");
 
     thread::spawn(move || {
         match client.connect() {
             Ok(result) => {
-                set_status(format!("{}: {}", result.status, result.message));
+                let result_status = result.status.to_string();
+                let result_message = result.message.to_string();
+
+                if result_status.eq_ignore_ascii_case("CONNECTED") {
+                    CONNECTED.store(true, Ordering::SeqCst);
+                    set_status(format!(
+                        "CONNECTED: {}",
+                        result_message
+                    ));
+                } else {
+                    CONNECTED.store(false, Ordering::SeqCst);
+                    set_status(format!(
+                        "{}: {}",
+                        result_status,
+                        result_message
+                    ));
+                }
             }
+
             Err(error) => {
-                set_status(format!("Connection error: {}", error));
+                CONNECTED.store(false, Ordering::SeqCst);
+                set_status(format!(
+                    "Connection error: {}",
+                    error
+                ));
             }
         }
     });
@@ -418,6 +528,8 @@ pub extern "system" fn Java_com_example_autoiprotator_OpenVpn3Bridge_nativeStop(
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
+    CONNECTED.store(false, Ordering::SeqCst);
+
     if let Ok(mut stored) = client_store().lock() {
         if let Some(client) = stored.take() {
             client.stop();
