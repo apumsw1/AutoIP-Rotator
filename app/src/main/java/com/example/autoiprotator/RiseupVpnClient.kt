@@ -27,13 +27,9 @@ data class RiseupServer(
 
 object RiseupVpnClient {
 
-    private const val CA_URL = "https://black.riseup.net/ca.crt"
     private const val API_BASE = "https://api.black.riseup.net/3"
     private const val EIP_URL = "$API_BASE/config/eip-service.json"
     private const val CERT_URL = "$API_BASE/cert"
-
-    @Volatile
-    private var cachedCaPem: String? = null
 
     @Volatile
     private var cachedSslContext: SSLContext? = null
@@ -44,18 +40,20 @@ object RiseupVpnClient {
         synchronized(this) {
             cachedSslContext?.let { return it }
 
-            // First fetch the CA using normal Android HTTPS validation.
-            val caPem = cachedCaPem ?: httpsGet(CA_URL).also {
-                cachedCaPem = it
-            }
-
-            val caCertificate = parseCaCertificate(caPem)
+            val caCertificate = parseCaCertificate(RiseupCa.PEM)
 
             require(caCertificate.basicConstraints >= 0) {
-                "Riseup CA certificate is not a CA certificate."
+                "Bundled Riseup certificate is not a CA certificate."
             }
 
-            // Trust only the downloaded Riseup CA for Riseup API TLS.
+            val now = System.currentTimeMillis()
+            require(
+                now >= caCertificate.notBefore.time &&
+                now <= caCertificate.notAfter.time
+            ) {
+                "Bundled Riseup CA certificate is not currently valid."
+            }
+
             val keyStore = KeyStore.getInstance(
                 KeyStore.getDefaultType()
             )
@@ -88,6 +86,7 @@ object RiseupVpnClient {
         Thread({
             val result = runCatching {
                 val trust = loadRiseupTrust()
+
                 val service = JSONObject(
                     httpsGet(EIP_URL, trust)
                 )
@@ -164,14 +163,10 @@ object RiseupVpnClient {
                 }
 
                 require(server.port in 1..65535) {
-                    "Invalid Riseup gateway port."
+                    "Invalid OpenVPN port."
                 }
 
-                // Use Riseup's CA for API TLS validation.
                 val trust = loadRiseupTrust()
-
-                val caPem = cachedCaPem
-                    ?: error("Riseup CA certificate unavailable.")
 
                 val eip = JSONObject(
                     httpsGet(EIP_URL, trust)
@@ -180,10 +175,10 @@ object RiseupVpnClient {
                 val credentials = httpsGet(CERT_URL, trust)
 
                 val profile = buildOpenVpnProfile(
-                    server,
-                    eip,
-                    caPem,
-                    credentials
+                    server = server,
+                    eip = eip,
+                    caPem = RiseupCa.PEM,
+                    credentialsPem = credentials
                 )
 
                 val intent = Intent(
@@ -227,7 +222,7 @@ object RiseupVpnClient {
 
     private fun httpsGet(
         address: String,
-        riseupTrust: SSLContext? = null
+        riseupTrust: SSLContext
     ): String {
         val connection =
             URL(address).openConnection() as HttpsURLConnection
@@ -247,12 +242,10 @@ object RiseupVpnClient {
                 "AutoIP-Rotator/1.0"
             )
 
-            // Keep hostname verification enabled.
-            // Only the trusted CA store changes for the Riseup API.
-            if (riseupTrust != null) {
-                connection.sslSocketFactory =
-                    riseupTrust.socketFactory
-            }
+            // Use the bundled Riseup CA.
+            // Default HTTPS hostname verification remains enabled.
+            connection.sslSocketFactory =
+                riseupTrust.socketFactory
 
             val status = connection.responseCode
 
@@ -328,6 +321,7 @@ object RiseupVpnClient {
             }
         }
 
+        // Support older capability format.
         val legacy = capabilities.optJSONArray("transport")
 
         val hasOpenVpn = legacy != null &&
@@ -343,6 +337,7 @@ object RiseupVpnClient {
             val ports = stringValues(
                 capabilities.optJSONArray("ports")
             ).mapNotNull { it.toIntOrNull() }
+                .filter { it in 1..65535 }
 
             if ("udp" in protocols && 1194 in ports) {
                 return "udp" to 1194
@@ -448,7 +443,7 @@ object RiseupVpnClient {
                             Regex("""[A-Za-z0-9_.:+,/ -]{1,160}""")
                         )
                     ) {
-                        "Invalid value in Riseup OpenVPN option: $key"
+                        "Invalid Riseup OpenVPN option: $key"
                     }
 
                     profile.appendLine("$key $optionValue")
