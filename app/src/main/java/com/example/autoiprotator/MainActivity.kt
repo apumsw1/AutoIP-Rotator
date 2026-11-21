@@ -1,9 +1,5 @@
-
 package com.example.autoiprotator
 
-import android.animation.ArgbEvaluator
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
@@ -15,127 +11,89 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.widget.*
-import com.example.autoiprotator.ui.PublicVpnScreen
 import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
 
     private lateinit var engine: VpnEngine
-    private lateinit var status: TextView
-    private lateinit var connectionTime: TextView
-    private lateinit var countdown: TextView
+
+    private lateinit var statusText: TextView
+    private lateinit var ipText: TextView
+    private lateinit var countryText: TextView
+    private lateinit var warpText: TextView
     private lateinit var connectButton: Button
-    private lateinit var timerSpinner: Spinner
-    private lateinit var personalPanel: LinearLayout
-    private lateinit var publicPanel: LinearLayout
-    private lateinit var publicVpnScreen: PublicVpnScreen
-    private lateinit var personalTab: Button
-    private lateinit var publicTab: Button
-    private lateinit var monitorText: TextView
-    private lateinit var statusIcon: TextView
-    private lateinit var mainStatusTitle: TextView
-    private lateinit var creationLabel: TextView
+    private lateinit var autoSwitch: Switch
+    private lateinit var intervalSpinner: Spinner
 
     private val executor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
 
-    private var configText: String? = null
+    private var profile: String? = null
     private var connected = false
-    private var publicSelected = false
+    private var connecting = false
     private var reconnecting = false
-    private var startedAt = 0L
+    private var autoReconnect = false
+    private var reconnectInterval = 60000L
+
     private var nextReconnect = 0L
-    private var interval = 0L
+
+    private val vpnRequestCode = 4101
 
     private val cyan = Color.rgb(0, 225, 255)
-    private val green = Color.rgb(0, 255, 105)
-    private val dark = Color.rgb(2, 8, 20)
-    private val white = Color.rgb(240, 250, 255)
-    private val muted = Color.rgb(145, 180, 205)
-    private val warning = Color.rgb(255, 190, 40)
-    private val red = Color.rgb(255, 45, 55)
+    private val green = Color.rgb(0, 230, 100)
+    private val dark = Color.rgb(2, 9, 23)
+    private val white = Color.WHITE
+    private val muted = Color.rgb(150, 180, 205)
+    private val red = Color.rgb(255, 55, 65)
 
-    private val options = arrayOf(
-        "∞ Unlimited — Stable IP",
-        "5 seconds",
-        "10 seconds",
-        "30 seconds",
-        "1 minute",
-        "2 minutes",
-        "5 minutes"
-    )
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
-    companion object {
-        private const val VPN_REQUEST = 4101
-        private const val FILE_REQUEST = 4102
-    }
-
-    private fun dp(v: Int): Int =
-        (v * resources.displayMetrics.density).toInt()
-
-    private fun gradient(
-        a: Int,
-        b: Int,
+    private fun background(
+        color: Int,
         stroke: Int = cyan,
-        radius: Int = 22
+        radius: Int = 20
     ): GradientDrawable {
-        return GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(a, b)
-        ).apply {
+        return GradientDrawable().apply {
+            setColor(color)
             cornerRadius = dp(radius).toFloat()
             setStroke(dp(1), stroke)
         }
     }
 
-    private fun label(
+    private fun makeText(
         value: String,
         size: Float,
         color: Int,
-        bold: Boolean = false,
-        gravityValue: Int = Gravity.CENTER
-    ) = TextView(this).apply {
-        text = value
-        textSize = size
-        setTextColor(color)
-        gravity = gravityValue
-        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        setPadding(dp(5), dp(5), dp(5), dp(5))
-    }
-
-    private fun makeButton(
-        value: String,
-        start: Int,
-        end: Int,
-        stroke: Int,
-        textColor: Int = white
-    ) = Button(this).apply {
-        text = value
-        isAllCaps = false
-        textSize = 17f
-        typeface = Typeface.DEFAULT_BOLD
-        setTextColor(textColor)
-        background = gradient(start, end, stroke, 40)
-        stateListAnimator = null
-        elevation = dp(5).toFloat()
-    }
-
-    private fun card(stroke: Int = cyan) =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        bold: Boolean = false
+    ): TextView {
+        return TextView(this).apply {
+            text = value
+            textSize = size
+            setTextColor(color)
             gravity = Gravity.CENTER
-            setPadding(dp(15), dp(15), dp(15), dp(15))
-            background = gradient(
-                Color.rgb(7, 29, 51),
-                Color.rgb(2, 12, 29),
-                stroke,
-                24
-            )
-            elevation = dp(5).toFloat()
+            if (bold) typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(8), dp(9), dp(8), dp(9))
         }
+    }
+
+    private fun makeButton(value: String): Button {
+        return Button(this).apply {
+            text = value
+            textSize = 19f
+            isAllCaps = false
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(white)
+            background = background(
+                Color.rgb(0, 125, 45),
+                green,
+                40
+            )
+            stateListAnimator = null
+        }
+    }
 
     private fun addSpace(parent: LinearLayout, height: Int = 12) {
         parent.addView(
@@ -144,78 +102,43 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun makeCard(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(15), dp(15), dp(15), dp(15))
+            background = background(
+                Color.rgb(7, 25, 45),
+                cyan,
+                22
+            )
+        }
+    }
+
     private fun addCard(parent: LinearLayout, child: View) {
         parent.addView(
             child,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = dp(14)
+                bottomMargin = dp(15)
             }
         )
-    }
-
-    private fun animateView(view: View) {
-        ObjectAnimator.ofFloat(
-            view,
-            View.ALPHA,
-            0.72f,
-            1f
-        ).apply {
-            duration = 1300
-            repeatMode = ValueAnimator.REVERSE
-            repeatCount = ValueAnimator.INFINITE
-            start()
-        }
-    }
-
-    private fun animateCreationText(view: TextView) {
-
-        ObjectAnimator.ofFloat(
-            view,
-            View.TRANSLATION_Y,
-            0f,
-            -dp(5).toFloat(),
-            0f
-        ).apply {
-            duration = 1800
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.RESTART
-            start()
-        }
-
-        val colors = intArrayOf(
-            Color.rgb(255, 190, 40),
-            Color.rgb(0, 225, 255),
-            Color.rgb(100, 145, 255),
-            Color.rgb(210, 90, 255),
-            Color.rgb(255, 190, 40)
-        )
-
-        ValueAnimator.ofObject(
-            ArgbEvaluator(),
-            *colors.toTypedArray()
-        ).apply {
-            duration = 5000
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.RESTART
-
-            addUpdateListener {
-                view.setTextColor(it.animatedValue as Int)
-            }
-
-            start()
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         engine = VpnEngine(applicationContext)
+
         buildUI()
+        loadSavedProfile()
+        checkNetwork()
     }
 
     private fun buildUI() {
+
         val scroll = ScrollView(this).apply {
             setBackgroundColor(dark)
             isFillViewport = true
@@ -223,252 +146,156 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(15), dp(16), dp(25))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(
-                    Color.rgb(1, 9, 25),
-                    Color.rgb(3, 19, 39),
-                    Color.rgb(1, 7, 19)
-                )
-            )
-        }
-
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        // LEFT SHIELD LOGO
-        header.addView(
-            label("🛡", 38f, cyan, true),
-            LinearLayout.LayoutParams(dp(58), dp(68))
-        )
-
-        val titleBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            setPadding(dp(17), dp(22), dp(17), dp(25))
         }
 
-        titleBox.addView(label("AUTOIP ROTATOR", 23f, cyan, true))
-
-        // FLOATING, COLOR-CHANGING CREATION TEXT
-        creationLabel = label(
-            "♛  M'r ApurbA Creation  ♛",
-            13f,
-            warning,
-            true
+        root.addView(
+            makeText("🛡", 55f, cyan, true)
         )
 
-        titleBox.addView(creationLabel)
-
-        header.addView(
-            titleBox,
-            LinearLayout.LayoutParams(0, dp(70), 1f)
+        root.addView(
+            makeText("ULTRA VPN", 32f, cyan, true)
         )
 
-        // RIGHT SIDE: SAME SHIELD LOGO
-        header.addView(
-            label("🛡", 38f, cyan, true),
-            LinearLayout.LayoutParams(dp(48), dp(68))
-        )
-
-        addCard(root, header)
-
-        addCard(
-            root,
-            label("SECURE NETWORK CONNECTION", 11f, green, true)
-        )
-
-        val tabs = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            background = gradient(
-                Color.rgb(2, 15, 35),
-                Color.rgb(1, 9, 24),
-                cyan,
-                40
-            )
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-        }
-
-        personalTab = makeButton(
-            "♟  PERSONAL VPN",
-            Color.rgb(0, 115, 220),
-            Color.rgb(0, 220, 255),
-            cyan
-        )
-
-        publicTab = makeButton(
-            "ϟ  PUBLIC VPN",
-            Color.rgb(2, 15, 35),
-            Color.rgb(2, 15, 35),
-            Color.TRANSPARENT
-        )
-
-        tabs.addView(
-            personalTab,
-            LinearLayout.LayoutParams(0, dp(52), 1f)
-        )
-
-        tabs.addView(
-            publicTab,
-            LinearLayout.LayoutParams(0, dp(52), 1f)
-        )
-
-        addCard(root, tabs)
-
-        personalPanel = card()
-
-        personalPanel.addView(
-            label("PERSONAL WIREGUARD VPN", 17f, cyan, true)
-        )
-
-        personalPanel.addView(
-            label(
-                "YOUR PRIVATE VPN CONFIGURATION",
-                11f,
-                muted,
+        root.addView(
+            makeText(
+                "CLOUDFLARE WARP CONNECTION",
+                12f,
+                green,
                 true
             )
         )
 
-        val importButton = makeButton(
-            "IMPORT WIREGUARD .CONF",
-            Color.rgb(0, 80, 135),
-            Color.rgb(0, 170, 205),
-            cyan
-        )
+        addSpace(root, 22)
 
-        importButton.setOnClickListener {
-            openFilePicker()
-        }
-
-        addSpace(personalPanel, 8)
-
-        personalPanel.addView(
-            importButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(50)
-            )
-        )
-
-        publicVpnScreen = PublicVpnScreen(this)
-        publicPanel = publicVpnScreen.createView()
-
-        addCard(root, personalPanel)
-        addCard(root, publicPanel)
-
-        val statusCard = card()
-
-        val statusHeading = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        statusIcon = label("●", 25f, warning, true)
-
-        statusHeading.addView(
-            statusIcon,
-            LinearLayout.LayoutParams(dp(45), dp(45))
-        )
-
-        mainStatusTitle = label(
-            "PERSONAL VPN STATUS:",
-            16f,
-            white,
-            true,
-            Gravity.CENTER_VERTICAL
-        )
-
-        statusHeading.addView(
-            mainStatusTitle,
-            LinearLayout.LayoutParams(0, dp(45), 1f)
-        )
-
-        statusCard.addView(statusHeading)
-
-        status = label("DISCONNECTED", 29f, warning, true)
-        statusCard.addView(status)
-
-        val divider = View(this).apply {
-            setBackgroundColor(Color.rgb(0, 100, 145))
-        }
+        val statusCard = makeCard()
 
         statusCard.addView(
-            divider,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(1)
-            )
+            makeText("CONNECTION STATUS", 14f, muted, true)
         )
 
-        val timeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        timeRow.addView(
-            label("◷", 34f, cyan, true),
-            LinearLayout.LayoutParams(dp(65), dp(65))
-        )
-
-        val timeBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        timeBox.addView(
-            label("CONNECTED TIME:", 13f, white, true, Gravity.START)
-        )
-
-        connectionTime = label(
-            "00:00:00",
-            25f,
-            white,
-            true,
-            Gravity.START
-        )
-
-        timeBox.addView(connectionTime)
-
-        timeRow.addView(
-            timeBox,
-            LinearLayout.LayoutParams(0, dp(70), 1f)
-        )
-
-        statusCard.addView(timeRow)
-        addCard(root, statusCard)
-
-        val timerCard = card()
-
-        timerCard.addView(
-            label("⟳  AUTO-RECONNECT INTERVAL", 17f, cyan, true)
-        )
-
-        timerSpinner = Spinner(this)
-        timerSpinner.adapter = DarkSpinnerAdapter(this, options)
-
-        timerCard.addView(
-            timerSpinner,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(55)
-            )
-        )
-
-        countdown = label(
-            "AUTO-RECONNECT: UNLIMITED",
-            13f,
-            cyan,
+        statusText = makeText(
+            "DISCONNECTED",
+            26f,
+            Color.YELLOW,
             true
         )
 
-        timerCard.addView(countdown)
-        addCard(root, timerCard)
+        statusCard.addView(statusText)
 
-        timerSpinner.onItemSelectedListener =
+        addCard(root, statusCard)
+
+        val ipCard = makeCard()
+
+        ipCard.addView(
+            makeText("PUBLIC IP ADDRESS", 14f, cyan, true)
+        )
+
+        ipText = makeText(
+            "Checking...",
+            21f,
+            white,
+            true
+        )
+
+        ipCard.addView(ipText)
+
+        addSpace(ipCard)
+
+        ipCard.addView(
+            makeText("COUNTRY / LOCATION", 13f, muted, true)
+        )
+
+        countryText = makeText(
+            "Checking...",
+            19f,
+            white,
+            true
+        )
+
+        ipCard.addView(countryText)
+
+        addSpace(ipCard)
+
+        warpText = makeText(
+            "WARP: NOT VERIFIED",
+            15f,
+            Color.YELLOW,
+            true
+        )
+
+        ipCard.addView(warpText)
+
+        addCard(root, ipCard)
+
+        connectButton = makeButton("⚡ START VPN")
+
+        connectButton.setOnClickListener {
+            if (connecting || reconnecting) return@setOnClickListener
+
+            if (connected) {
+                disconnectVpn()
+            } else {
+                requestVpnPermission()
+            }
+        }
+
+        root.addView(
+            connectButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(65)
+            ).apply {
+                bottomMargin = dp(18)
+            }
+        )
+
+        val autoCard = makeCard()
+
+        autoCard.addView(
+            makeText("AUTO RECONNECT", 18f, cyan, true)
+        )
+
+        autoSwitch = Switch(this).apply {
+            text = "Enable automatic reconnect"
+            textSize = 14f
+            setTextColor(white)
+
+            setOnCheckedChangeListener { _, checked ->
+                autoReconnect = checked
+
+                if (checked && connected) {
+                    nextReconnect =
+                        System.currentTimeMillis() + reconnectInterval
+                }
+            }
+        }
+
+        autoCard.addView(autoSwitch)
+
+        addSpace(autoCard)
+
+        autoCard.addView(
+            makeText("RECONNECT INTERVAL", 13f, muted, true)
+        )
+
+        intervalSpinner = Spinner(this)
+
+        val intervalOptions = arrayOf(
+            "30 seconds",
+            "1 minute",
+            "2 minutes",
+            "5 minutes"
+        )
+
+        intervalSpinner.adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            intervalOptions
+        )
+
+        intervalSpinner.onItemSelectedListener =
             object : AdapterView.OnItemSelectedListener {
 
                 override fun onItemSelected(
@@ -477,25 +304,17 @@ class MainActivity : Activity() {
                     position: Int,
                     id: Long
                 ) {
-                    interval = when (position) {
-                        1 -> 5000L
-                        2 -> 10000L
-                        3 -> 30000L
-                        4 -> 60000L
-                        5 -> 120000L
-                        6 -> 300000L
-                        else -> 0L
+                    reconnectInterval = when (position) {
+                        0 -> 30000L
+                        1 -> 60000L
+                        2 -> 120000L
+                        else -> 300000L
                     }
 
-                    if (connected) {
-                        nextReconnect = if (interval == 0L) {
-                            0L
-                        } else {
-                            System.currentTimeMillis() + interval
-                        }
+                    if (connected && autoReconnect) {
+                        nextReconnect =
+                            System.currentTimeMillis() + reconnectInterval
                     }
-
-                    updateCountdown()
                 }
 
                 override fun onNothingSelected(
@@ -503,190 +322,50 @@ class MainActivity : Activity() {
                 ) = Unit
             }
 
-        connectButton = makeButton(
-            "ϟ  CONNECT",
-            Color.rgb(0, 120, 30),
-            Color.rgb(0, 230, 65),
-            green
-        )
-
-        connectButton.textSize = 22f
-
-        connectButton.setOnClickListener {
-            if (!publicSelected) {
-                if (connected) {
-                    disconnectVpn()
-                } else {
-                    requestVpnPermission()
-                }
-            }
-        }
-
-        root.addView(
-            connectButton,
+        autoCard.addView(
+            intervalSpinner,
             LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(66)
-            ).apply {
-                bottomMargin = dp(17)
-                topMargin = dp(2)
-            }
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(50)
+            )
         )
 
-        val monitorCard = card(green)
-        monitorCard.orientation = LinearLayout.HORIZONTAL
-        monitorCard.gravity = Gravity.CENTER
-
-        monitorCard.addView(
-            label("▮▮▮", 22f, green, true),
-            LinearLayout.LayoutParams(dp(65), dp(48))
-        )
-
-        monitorText = label(
-            "NETWORK MONITOR  //  READY",
-            14f,
-            green,
-            true
-        )
-
-        monitorCard.addView(
-            monitorText,
-            LinearLayout.LayoutParams(0, dp(48), 1f)
-        )
-
-        addCard(root, monitorCard)
+        addCard(root, autoCard)
 
         root.addView(
-            label(
-                "Auto IP Rotation for a Stable & Secure Connection",
+            makeText(
+                "POWERED BY CLOUDFLARE WARP",
                 12f,
+                cyan,
+                true
+            )
+        )
+
+        root.addView(
+            makeText(
+                "ULTRA VPN • SECURE NETWORK",
+                10f,
                 muted
             )
         )
 
-        root.addView(
-            label("SECURE • PRIVATE • CONTROLLED", 10f, cyan, true)
-        )
-
-        personalTab.setOnClickListener {
-            selectPersonal()
-        }
-
-        publicTab.setOnClickListener {
-            selectPublic()
-        }
-
         scroll.addView(root)
         setContentView(scroll)
-
-        selectPersonal()
-        animateView(root.getChildAt(0))
-        animateCreationText(creationLabel)
     }
 
-    private fun selectPersonal() {
-        publicSelected = false
-
-        publicPanel.visibility = View.GONE
-        personalPanel.visibility = View.VISIBLE
-        connectButton.visibility = View.VISIBLE
-
-        personalTab.background = gradient(
-            Color.rgb(0, 100, 205),
-            Color.rgb(0, 210, 255),
-            cyan,
-            40
-        )
-
-        publicTab.background = gradient(
-            Color.rgb(2, 15, 35),
-            Color.rgb(2, 15, 35),
-            Color.TRANSPARENT,
-            40
-        )
-
-        mainStatusTitle.text = "PERSONAL VPN STATUS:"
-        updateConnectionUI()
+    private fun loadSavedProfile() {
+        profile = CloudflareWarpClient.getSavedProfile(this)
     }
 
-    private fun selectPublic() {
-        publicSelected = true
+    private fun requestVpnPermission() {
 
-        personalPanel.visibility = View.GONE
-        publicPanel.visibility = View.VISIBLE
-        connectButton.visibility = View.GONE
+        val intent = VpnService.prepare(this)
 
-        publicTab.background = gradient(
-            Color.rgb(0, 100, 205),
-            Color.rgb(0, 210, 255),
-            cyan,
-            40
-        )
-
-        personalTab.background = gradient(
-            Color.rgb(2, 15, 35),
-            Color.rgb(2, 15, 35),
-            Color.TRANSPARENT,
-            40
-        )
-
-        mainStatusTitle.text = "PUBLIC VPN STATUS:"
-        status.text = "USE PUBLIC VPN PANEL"
-        status.setTextColor(cyan)
-        statusIcon.setTextColor(cyan)
-        connectionTime.text = "00:00:00"
-        monitorText.text = "PUBLIC VPN  //  READY"
-    }
-
-    private fun updateConnectionUI() {
-        if (connected) {
-            status.text = "CONNECTED"
-            status.setTextColor(green)
-            statusIcon.text = "●"
-            statusIcon.setTextColor(green)
-
-            connectButton.text = "◉  DISCONNECT"
-            connectButton.background = gradient(
-                Color.rgb(150, 0, 15),
-                Color.rgb(255, 35, 45),
-                red,
-                40
-            )
-
-            monitorText.text = "NETWORK MONITOR  //  CONNECTED"
+        if (intent != null) {
+            startActivityForResult(intent, vpnRequestCode)
         } else {
-            status.text = "DISCONNECTED"
-            status.setTextColor(warning)
-            statusIcon.text = "●"
-            statusIcon.setTextColor(warning)
-
-            connectButton.text = "ϟ  CONNECT"
-            connectButton.background = gradient(
-                Color.rgb(0, 120, 30),
-                Color.rgb(0, 230, 65),
-                green,
-                40
-            )
-
-            monitorText.text = if (configText.isNullOrBlank()) {
-                "NETWORK MONITOR  //  IMPORT CONFIG"
-            } else {
-                "NETWORK MONITOR  //  READY"
-            }
+            startConnection()
         }
-
-        connectButton.isEnabled =
-            connected || !configText.isNullOrBlank()
-    }
-
-    private fun openFilePicker() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-
-        startActivityForResult(intent, FILE_REQUEST)
     }
 
     @Deprecated("Activity result compatibility")
@@ -697,149 +376,90 @@ class MainActivity : Activity() {
     ) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode == PublicVpnScreen.VPN_PERMISSION_REQUEST) {
-            publicVpnScreen.onPermissionResult(resultCode == RESULT_OK)
-            return
-        }
-
-        if (
-            requestCode == FILE_REQUEST &&
-            resultCode == RESULT_OK
-        ) {
-            val uri = data?.data ?: return
-
-            executor.execute {
-                try {
-                    val text = contentResolver.openInputStream(uri)
-                        ?.bufferedReader()
-                        ?.use { it.readText() }
-                        ?: throw Exception("Unable to read configuration.")
-
-                    require(
-                        text.contains("[Interface]") &&
-                        text.contains("[Peer]")
-                    ) {
-                        "Invalid WireGuard configuration."
-                    }
-
-                    runOnUiThread {
-                        configText = text
-
-                        if (!publicSelected) {
-                            status.text = "CONFIG READY"
-                            status.setTextColor(green)
-                            monitorText.text =
-                                "NETWORK MONITOR  //  CONFIG READY"
-
-                            connectButton.isEnabled = true
-                        }
-
-                        Toast.makeText(
-                            this,
-                            "Configuration imported.",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-
-                } catch (e: Exception) {
-                    runOnUiThread {
-                        Toast.makeText(
-                            this,
-                            e.message ?: "Import failed.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
-        }
-
-        if (requestCode == VPN_REQUEST) {
+        if (requestCode == vpnRequestCode) {
             if (resultCode == RESULT_OK) {
-                connectVpn()
+                startConnection()
             } else {
-                status.text = "VPN PERMISSION DENIED"
-                status.setTextColor(warning)
+                showError("VPN permission was denied.")
             }
         }
     }
 
-    private fun requestVpnPermission() {
-        if (configText.isNullOrBlank()) {
-            Toast.makeText(
-                this,
-                "Import your .conf file first.",
-                Toast.LENGTH_SHORT
-            ).show()
-            return
-        }
+    private fun startConnection() {
 
-        val intent = VpnService.prepare(this)
+        if (connecting || connected) return
 
-        if (intent != null) {
-            startActivityForResult(intent, VPN_REQUEST)
-        } else {
-            connectVpn()
-        }
-    }
+        connecting = true
 
-    private fun connectVpn() {
-        val config = configText ?: return
+        statusText.text = "CONNECTING..."
+        statusText.setTextColor(Color.YELLOW)
 
         connectButton.isEnabled = false
-        status.text = "CONNECTING..."
-        status.setTextColor(warning)
-        monitorText.text = "NETWORK MONITOR  //  CONNECTING"
+        connectButton.text = "PLEASE WAIT..."
 
         executor.execute {
             try {
+                val config = profile
+                    ?: CloudflareWarpClient.register(this).also {
+                        profile = it
+                    }
+
                 engine.connect(config)
 
                 val active = engine.isConnected()
 
-                runOnUiThread {
-                    connected = active
-
-                    if (active) {
-                        startedAt = System.currentTimeMillis()
-
-                        nextReconnect = if (interval == 0L) {
-                            0L
-                        } else {
-                            startedAt + interval
-                        }
-
-                        updateConnectionUI()
-
-                        handler.removeCallbacks(clockTask)
-                        handler.post(clockTask)
-                    } else {
-                        connected = false
-                        updateConnectionUI()
-                        status.text = "CONNECTION FAILED"
-                        status.setTextColor(warning)
-                    }
+                if (!active) {
+                    throw IllegalStateException(
+                        "WireGuard tunnel did not become active."
+                    )
                 }
 
-            } catch (e: Exception) {
                 runOnUiThread {
+                    connecting = false
+                    connected = true
+
+                    statusText.text = "TUNNEL ACTIVE"
+                    statusText.setTextColor(green)
+
+                    connectButton.text = "STOP VPN"
+                    connectButton.isEnabled = true
+                    connectButton.background = background(red, red, 40)
+
+                    if (autoReconnect) {
+                        nextReconnect =
+                            System.currentTimeMillis() + reconnectInterval
+                    }
+
+                    checkNetwork()
+                    handler.removeCallbacks(reconnectTask)
+                    handler.postDelayed(reconnectTask, 5000)
+                }
+
+            } catch (error: Exception) {
+                runOnUiThread {
+                    connecting = false
                     connected = false
-                    updateConnectionUI()
 
-                    status.text = "CONNECTION FAILED"
-                    status.setTextColor(warning)
+                    statusText.text = "CONNECTION FAILED"
+                    statusText.setTextColor(red)
 
-                    Toast.makeText(
-                        this,
-                        e.message ?: "VPN connection failed.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    connectButton.text = "⚡ START VPN"
+                    connectButton.isEnabled = true
+                    connectButton.background =
+                        background(Color.rgb(0, 125, 45), green, 40)
+
+                    showError(
+                        error.message ?: "Unable to connect to WARP."
+                    )
                 }
             }
         }
     }
 
     private fun disconnectVpn() {
+
         connectButton.isEnabled = false
+        statusText.text = "DISCONNECTING..."
 
         executor.execute {
             try {
@@ -847,128 +467,155 @@ class MainActivity : Activity() {
 
                 runOnUiThread {
                     connected = false
+                    connecting = false
                     reconnecting = false
 
-                    handler.removeCallbacks(clockTask)
-                    connectionTime.text = "00:00:00"
+                    handler.removeCallbacks(reconnectTask)
 
-                    updateConnectionUI()
-                    connectButton.isEnabled =
-                        !configText.isNullOrBlank()
+                    statusText.text = "DISCONNECTED"
+                    statusText.setTextColor(Color.YELLOW)
+
+                    connectButton.text = "⚡ START VPN"
+                    connectButton.isEnabled = true
+                    connectButton.background =
+                        background(Color.rgb(0, 125, 45), green, 40)
+
+                    warpText.text = "WARP: DISCONNECTED"
+                    warpText.setTextColor(Color.YELLOW)
                 }
 
-            } catch (e: Exception) {
+            } catch (error: Exception) {
                 runOnUiThread {
                     connectButton.isEnabled = true
-
-                    Toast.makeText(
-                        this,
-                        e.message ?: "Disconnect failed.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    showError(
+                        error.message ?: "Disconnect failed."
+                    )
                 }
             }
         }
     }
 
-    private val clockTask = object : Runnable {
+    private fun checkNetwork() {
+
+        ipText.text = "Checking..."
+        countryText.text = "Checking..."
+        warpText.text = "WARP: VERIFYING..."
+
+        executor.execute {
+            try {
+                val trace = CloudflareWarpClient.checkTrace()
+
+                val ip = trace["ip"] ?: "Unknown"
+                val country = trace["loc"] ?: "Unknown"
+                val warp = trace["warp"] ?: "unknown"
+
+                runOnUiThread {
+                    ipText.text = ip
+                    countryText.text = country
+
+                    if (warp.equals("on", true) ||
+                        warp.equals("plus", true)
+                    ) {
+                        warpText.text = "WARP: VERIFIED"
+                        warpText.setTextColor(green)
+                    } else {
+                        warpText.text = "WARP: NOT VERIFIED"
+                        warpText.setTextColor(Color.YELLOW)
+                    }
+                }
+
+            } catch (error: Exception) {
+                runOnUiThread {
+                    ipText.text = "Unavailable"
+                    countryText.text = "Unavailable"
+                    warpText.text = "WARP: CHECK FAILED"
+                    warpText.setTextColor(red)
+                }
+            }
+        }
+    }
+
+    private val reconnectTask = object : Runnable {
         override fun run() {
+
             if (!connected) return
 
-            val now = System.currentTimeMillis()
-            val elapsed = (now - startedAt) / 1000L
-
-            connectionTime.text = formatTime(elapsed)
-            updateCountdown()
-
-            if (
-                interval > 0L &&
-                now >= nextReconnect &&
+            if (autoReconnect &&
+                System.currentTimeMillis() >= nextReconnect &&
                 !reconnecting
             ) {
                 reconnectVpn()
+            } else {
+                checkNetwork()
+                handler.postDelayed(this, 30000)
             }
-
-            handler.postDelayed(this, 1000L)
         }
     }
 
     private fun reconnectVpn() {
-        val config = configText ?: return
+
+        val config = profile ?: return
+
         if (!connected || reconnecting) return
 
         reconnecting = true
 
-        status.text = "RECONNECTING..."
-        status.setTextColor(warning)
-        monitorText.text = "NETWORK MONITOR  //  RECONNECTING"
+        statusText.text = "RECONNECTING..."
+        statusText.setTextColor(Color.YELLOW)
 
         executor.execute {
             try {
                 engine.disconnect()
+                Thread.sleep(1000)
                 engine.connect(config)
 
                 val active = engine.isConnected()
 
                 runOnUiThread {
                     reconnecting = false
+                    connected = active
 
-                    if (active && connected) {
+                    if (active) {
+                        statusText.text = "TUNNEL ACTIVE"
+                        statusText.setTextColor(green)
+
                         nextReconnect =
-                            System.currentTimeMillis() + interval
+                            System.currentTimeMillis() + reconnectInterval
 
-                        updateConnectionUI()
+                        checkNetwork()
                     } else {
-                        connected = false
-                        updateConnectionUI()
-                        status.text = "RECONNECT FAILED"
-                        status.setTextColor(warning)
+                        statusText.text = "RECONNECT FAILED"
+                        statusText.setTextColor(red)
                     }
+
+                    handler.postDelayed(reconnectTask, 5000)
                 }
 
-            } catch (e: Exception) {
+            } catch (error: Exception) {
                 runOnUiThread {
                     reconnecting = false
                     connected = false
 
-                    updateConnectionUI()
-                    status.text = "RECONNECT FAILED"
-                    status.setTextColor(warning)
+                    statusText.text = "RECONNECT FAILED"
+                    statusText.setTextColor(red)
+
+                    connectButton.text = "⚡ START VPN"
+                    connectButton.isEnabled = true
                 }
             }
         }
     }
 
-    private fun updateCountdown() {
-        if (interval == 0L) {
-            countdown.text = "AUTO-RECONNECT: UNLIMITED"
-            return
-        }
-
-        val remaining =
-            ((nextReconnect - System.currentTimeMillis())
-                .coerceAtLeast(0L)) / 1000L
-
-        countdown.text = "NEXT RECONNECT: ${formatTime(remaining)}"
-    }
-
-    private fun formatTime(seconds: Long): String {
-        val h = seconds / 3600
-        val m = (seconds % 3600) / 60
-        val s = seconds % 60
-
-        return String.format(
-            Locale.US,
-            "%02d:%02d:%02d",
-            h,
-            m,
-            s
-        )
+    private fun showError(message: String) {
+        Toast.makeText(
+            this,
+            message,
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        publicVpnScreen.shutdown()
         executor.shutdown()
         super.onDestroy()
     }
