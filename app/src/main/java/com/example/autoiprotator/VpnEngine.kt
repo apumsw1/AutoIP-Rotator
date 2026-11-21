@@ -10,7 +10,11 @@ import java.io.ByteArrayInputStream
 class VpnEngine(context: Context) {
 
     private val appContext = context.applicationContext
+
     private val backend = GoBackend(appContext)
+
+    @Volatile
+    private var currentState = Tunnel.State.DOWN
 
     private val tunnel = object : Tunnel {
 
@@ -19,21 +23,13 @@ class VpnEngine(context: Context) {
         }
 
         override fun onStateChange(newState: Tunnel.State) {
-            // WireGuard tunnel state callback.
+            currentState = newState
         }
     }
 
-    /**
-     * Returns the Android VPN permission intent.
-     * If null is returned, permission is already granted.
-     */
     fun getVpnPermissionIntent() =
         VpnService.prepare(appContext)
 
-    /**
-     * Connect using a WireGuard configuration.
-     * Call this method from a background thread.
-     */
     @Synchronized
     fun connect(configText: String) {
 
@@ -45,11 +41,11 @@ class VpnEngine(context: Context) {
             "WireGuard configuration is empty."
         }
 
-        val inputStream = ByteArrayInputStream(
+        val input = ByteArrayInputStream(
             configText.toByteArray(Charsets.UTF_8)
         )
 
-        val config = inputStream.use {
+        val config = input.use {
             Config.parse(it)
         }
 
@@ -58,12 +54,10 @@ class VpnEngine(context: Context) {
             Tunnel.State.UP,
             config
         )
+
+        currentState = backend.getState(tunnel)
     }
 
-    /**
-     * Disconnect the active VPN tunnel.
-     * Call this method from a background thread.
-     */
     @Synchronized
     fun disconnect() {
 
@@ -72,19 +66,19 @@ class VpnEngine(context: Context) {
             Tunnel.State.DOWN,
             null
         )
+
+        currentState = Tunnel.State.DOWN
     }
 
-    /**
-     * Check the current WireGuard tunnel state.
-     */
     fun isConnected(): Boolean {
         return backend.getState(tunnel) == Tunnel.State.UP
     }
 
-    /**
-     * Get the current tunnel state.
-     */
     fun getConnectionState(): Tunnel.State {
         return backend.getState(tunnel)
+    }
+
+    fun getLastKnownState(): Tunnel.State {
+        return currentState
     }
 }
