@@ -1,4 +1,3 @@
-
 package com.example.autoiprotator
 
 import android.content.Context
@@ -14,33 +13,45 @@ class VpnEngine(context: Context) {
     private val backend = GoBackend(appContext)
 
     private val tunnel = object : Tunnel {
-        override fun getName(): String = "AutoIPRotator"
+
+        override fun getName(): String {
+            return "ULTRA-VPN"
+        }
 
         override fun onStateChange(newState: Tunnel.State) {
-            // Tunnel state is managed by WireGuard.
+            // WireGuard tunnel state callback.
         }
     }
 
-    // Check whether Android VPN permission is granted.
+    /**
+     * Returns the Android VPN permission intent.
+     * If null is returned, permission is already granted.
+     */
     fun getVpnPermissionIntent() =
         VpnService.prepare(appContext)
 
-    // Connect using an imported WireGuard configuration.
-    // Call this method from a background thread.
+    /**
+     * Connect using a WireGuard configuration.
+     * Call this method from a background thread.
+     */
+    @Synchronized
     fun connect(configText: String) {
+
         check(VpnService.prepare(appContext) == null) {
-            "VPN permission is required first."
+            "Android VPN permission is required."
         }
 
         require(configText.isNotBlank()) {
             "WireGuard configuration is empty."
         }
 
-        val input = ByteArrayInputStream(
+        val inputStream = ByteArrayInputStream(
             configText.toByteArray(Charsets.UTF_8)
         )
 
-        val config = Config.parse(input)
+        val config = inputStream.use {
+            Config.parse(it)
+        }
 
         backend.setState(
             tunnel,
@@ -49,9 +60,13 @@ class VpnEngine(context: Context) {
         )
     }
 
-    // Disconnect the VPN.
-    // Call this method from a background thread.
+    /**
+     * Disconnect the active VPN tunnel.
+     * Call this method from a background thread.
+     */
+    @Synchronized
     fun disconnect() {
+
         backend.setState(
             tunnel,
             Tunnel.State.DOWN,
@@ -59,7 +74,17 @@ class VpnEngine(context: Context) {
         )
     }
 
+    /**
+     * Check the current WireGuard tunnel state.
+     */
     fun isConnected(): Boolean {
         return backend.getState(tunnel) == Tunnel.State.UP
+    }
+
+    /**
+     * Get the current tunnel state.
+     */
+    fun getConnectionState(): Tunnel.State {
+        return backend.getState(tunnel)
     }
 }
