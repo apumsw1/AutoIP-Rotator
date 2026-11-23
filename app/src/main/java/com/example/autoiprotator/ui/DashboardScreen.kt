@@ -31,15 +31,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.GppGood
@@ -48,9 +50,12 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -93,19 +98,24 @@ import com.example.autoiprotator.ui.theme.VpnPalette
 fun DashboardScreen(
     tunnelStatus: TunnelStatus,
     activeServer: VpnServerProfile?,
-    totalServers: Int,
+    servers: List<VpnServerProfile>,
     autoSelectEnabled: Boolean,
+    sessionSeconds: Long,
     ipInfo: IpVerificationInfo?,
     baselineIp: String?,
     isVerifyingIp: Boolean,
     trafficStats: TunnelTrafficStats,
     onConnectClick: () -> Unit,
     onAutoConnectClick: () -> Unit,
+    onQuickCountryConnect: (String) -> Unit,
+    onRotateNodeClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     onVerifyIpClick: () -> Unit,
     onOpenCountries: () -> Unit,
-    onOpenQrScanner: () -> Unit
+    onOpenQrScanner: () -> Unit,
+    onOpenQuickSetup: () -> Unit
 ) {
+    val totalServers = servers.size
     val isConnected = tunnelStatus == TunnelStatus.CONNECTED
     val isBusy = tunnelStatus == TunnelStatus.CONNECTING ||
         tunnelStatus == TunnelStatus.AUTO_SELECTING ||
@@ -126,7 +136,17 @@ fun DashboardScreen(
         label = "statusColor"
     )
 
-    // Post-connection shockwave ring + lock-in spring animation
+    val countryBuckets = remember(servers) {
+        servers.groupBy { it.countryCode.uppercase() }
+            .entries
+            .map { (code, list) ->
+                val minPing = list.mapNotNull { it.latencyMs.takeIf { ms -> ms >= 0L } }.minOrNull()
+                Triple(code, list.firstOrNull()?.countryName ?: code, minPing)
+            }
+            .sortedBy { it.third ?: Long.MAX_VALUE }
+    }
+
+    // Post-connection shockwave ring + Thunder lock-in spring animation
     val lockBurstProgress = remember { Animatable(0f) }
     val lockCoreScale = remember { Animatable(1f) }
     LaunchedEffect(tunnelStatus) {
@@ -155,15 +175,15 @@ fun DashboardScreen(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (isBusy) 2200 else 7500, easing = LinearEasing)
+            animation = tween(durationMillis = if (isBusy) 1800 else 7200, easing = LinearEasing)
         ),
         label = "outerAngle"
     )
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (isConnected || isBusy) 1.05f else 1.015f,
+        targetValue = if (isConnected || isBusy) 1.055f else 1.02f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1100),
+            animation = tween(1050),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulseScale"
@@ -173,16 +193,117 @@ fun DashboardScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.TopCenter
     ) {
         Column(
             modifier = Modifier
                 .widthIn(max = 620.dp)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Hero Cyber Tunnel HUD
+            // Thunder-Style 1-Tap Country & Auto-Connect Strip
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = isConnected && autoSelectEnabled,
+                        onClick = {
+                            if (totalServers > 0) onAutoConnectClick() else onOpenQuickSetup()
+                        },
+                        enabled = !isBusy,
+                        label = {
+                            Text(
+                                text = "AUTO_FASTEST",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Bolt,
+                                contentDescription = null,
+                                tint = spectrumPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        shape = CutCornerShape(8.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = VpnPalette.SlateCard.copy(alpha = 0.85f),
+                            labelColor = spectrumPrimary,
+                            selectedContainerColor = spectrumPrimary.copy(alpha = 0.22f),
+                            selectedLabelColor = spectrumPrimary
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isConnected && autoSelectEnabled,
+                            borderColor = spectrumPrimary.copy(alpha = 0.7f),
+                            selectedBorderColor = spectrumPrimary
+                        ),
+                        modifier = Modifier.testTag("quick_auto_chip")
+                    )
+                }
+
+                if (countryBuckets.isEmpty()) {
+                    item {
+                        FilterChip(
+                            selected = false,
+                            onClick = onOpenQuickSetup,
+                            label = {
+                                Text(
+                                    text = "+ LINK WORKER / SCAN QR",
+                                    fontFamily = JetBrainsMonoFontFamily
+                                )
+                            },
+                            shape = CutCornerShape(8.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = VpnPalette.SlateCard.copy(alpha = 0.85f),
+                                labelColor = spectrumSecondary
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = false,
+                                borderColor = spectrumSecondary.copy(alpha = 0.6f)
+                            )
+                        )
+                    }
+                } else {
+                    items(countryBuckets, key = { it.first }) { (code, _, minPing) ->
+                        val isActiveCountry = isConnected &&
+                            activeServer?.countryCode.equals(code, ignoreCase = true)
+                        FilterChip(
+                            selected = isActiveCountry,
+                            onClick = { onQuickCountryConnect(code) },
+                            enabled = !isBusy,
+                            label = {
+                                val pingLabel = if (minPing != null) " • ${minPing}ms" else ""
+                                Text(
+                                    text = "${countryCodeToFlag(code)} $code$pingLabel",
+                                    fontFamily = JetBrainsMonoFontFamily
+                                )
+                            },
+                            shape = CutCornerShape(8.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = VpnPalette.SlateCard.copy(alpha = 0.85f),
+                                labelColor = VpnPalette.TextPrimary,
+                                selectedContainerColor = spectrumPrimary.copy(alpha = 0.22f),
+                                selectedLabelColor = spectrumPrimary
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isActiveCountry,
+                                borderColor = spectrumSecondary.copy(alpha = 0.45f),
+                                selectedBorderColor = spectrumPrimary
+                            ),
+                            modifier = Modifier.testTag("quick_country_${code.lowercase()}")
+                        )
+                    }
+                }
+            }
+
+            // Hero Thunder-Hacker Tunnel HUD
             CyberHudCard(
                 borderColor = statusColor,
                 secondaryBorderColor = spectrumSecondary,
@@ -192,41 +313,62 @@ fun DashboardScreen(
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Animated Status Badge
-                    Surface(
-                        shape = CutCornerShape(8.dp),
-                        color = statusColor.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.65f))
+                    // Status Badge + Session Uptime Clock
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Surface(
+                            shape = CutCornerShape(8.dp),
+                            color = statusColor.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, statusColor.copy(alpha = 0.65f))
                         ) {
-                            Icon(
-                                imageVector = if (isConnected) Icons.Filled.GppGood else Icons.Filled.Shield,
-                                contentDescription = null,
-                                tint = statusColor,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            ScrambleRevealText(
-                                text = when (tunnelStatus) {
-                                    TunnelStatus.CONNECTED -> "ACCESS_GRANTED // WIREGUARD_LOCKED"
-                                    TunnelStatus.CONNECTING -> "HANDSHAKE // CURVE25519_INIT..."
-                                    TunnelStatus.AUTO_SELECTING -> "SCANNING // BEST_LATENCY_NODE..."
-                                    TunnelStatus.DISCONNECTING -> "SHUTDOWN // CLOSING_TUNNEL..."
-                                    TunnelStatus.ERROR -> "ALERT // TUNNEL_FAULT"
-                                    TunnelStatus.DISCONNECTED -> "STANDBY // TUNNEL_READY"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = statusColor
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isConnected) Icons.Filled.GppGood else Icons.Filled.Shield,
+                                    contentDescription = null,
+                                    tint = statusColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                ScrambleRevealText(
+                                    text = when (tunnelStatus) {
+                                        TunnelStatus.CONNECTED -> "TUNNEL_LOCKED"
+                                        TunnelStatus.CONNECTING -> "HANDSHAKE..."
+                                        TunnelStatus.AUTO_SELECTING -> "AUTO_PROBING..."
+                                        TunnelStatus.DISCONNECTING -> "CLOSING..."
+                                        TunnelStatus.ERROR -> "TUNNEL_FAULT"
+                                        TunnelStatus.DISCONNECTED -> "1-TAP_READY"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = statusColor
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = CutCornerShape(8.dp),
+                            color = VpnPalette.SlateElevated.copy(alpha = 0.85f),
+                            border = BorderStroke(1.dp, spectrumSecondary.copy(alpha = 0.45f))
+                        ) {
+                            Text(
+                                text = if (isConnected) formatDuration(sessionSeconds) else "00:00:00",
+                                fontFamily = JetBrainsMonoFontFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isConnected) statusColor else VpnPalette.TextSecondary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
 
-                    // Multi-Ring Orbital Cyber Tunnel Orb + Shockwave Burst
+                    // Giant Thunder-Hacker Power Core + Shockwave Rings
                     Box(
                         modifier = Modifier
                             .size(164.dp)
@@ -238,11 +380,10 @@ fun DashboardScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            // Post-connection expanding shockwave rings
                             if (isConnected && lockBurstProgress.value in 0.01f..0.99f) {
                                 val p = lockBurstProgress.value
                                 drawCircle(
-                                    color = statusColor.copy(alpha = (1f - p) * 0.75f),
+                                    color = statusColor.copy(alpha = (1f - p) * 0.78f),
                                     radius = size.minDimension * (0.28f + 0.28f * p),
                                     style = Stroke(width = (5.dp.toPx() * (1f - p)).coerceAtLeast(1f))
                                 )
@@ -253,7 +394,6 @@ fun DashboardScreen(
                                 )
                             }
 
-                            // Outer rotating cyber dashed radar ring
                             rotate(outerAngle) {
                                 drawCircle(
                                     color = statusColor.copy(alpha = 0.55f),
@@ -265,7 +405,6 @@ fun DashboardScreen(
                                 )
                             }
 
-                            // Inner counter-rotating arc brackets
                             rotate(-outerAngle * 1.6f) {
                                 val stroke = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round)
                                 drawArc(
@@ -307,17 +446,17 @@ fun DashboardScreen(
                                     )
                                 } else {
                                     Icon(
-                                        imageVector = Icons.Filled.PowerSettingsNew,
-                                        contentDescription = if (isConnected) "Disconnect VPN" else "Connect VPN",
+                                        imageVector = if (isConnected) Icons.Filled.PowerSettingsNew else Icons.Filled.Bolt,
+                                        contentDescription = if (isConnected) "Disconnect VPN" else "One-Click Auto Connect VPN",
                                         tint = statusColor,
-                                        modifier = Modifier.size(48.dp)
+                                        modifier = Modifier.size(50.dp)
                                     )
                                 }
                             }
                         }
                     }
 
-                    // Beautiful Post-Connection Encrypted Stream & Terminal Celebration
+                    // Post-Connection Encrypted Stream & Waveform
                     AnimatedVisibility(
                         visible = isConnected || isBusy,
                         enter = fadeIn(tween(320)) + expandVertically(),
@@ -329,9 +468,9 @@ fun DashboardScreen(
                         ) {
                             TypewriterTerminalText(
                                 text = when (tunnelStatus) {
-                                    TunnelStatus.CONNECTED -> "CHACHA20_POLY1305 // PACKET_STREAM_ENCRYPTED"
-                                    TunnelStatus.AUTO_SELECTING -> "PROBING_COUNTRY_NODES // FINDING_MIN_PING"
-                                    TunnelStatus.CONNECTING -> "NEGOTIATING_WG_KEYS // ESTABLISHING_ROUTE"
+                                    TunnelStatus.CONNECTED -> "THUNDER_LINK_LOCKED // CHACHA20_STREAM_ACTIVE"
+                                    TunnelStatus.AUTO_SELECTING -> "SCANNING_NODES // SELECTING_LOWEST_PING"
+                                    TunnelStatus.CONNECTING -> "CURVE25519_HANDSHAKE // ROUTING_WG0"
                                     else -> "FLUSHING_INTERFACE // DISCONNECTING"
                                 },
                                 color = statusColor
@@ -342,12 +481,12 @@ fun DashboardScreen(
                                 isActive = isConnected || isBusy,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(44.dp)
+                                    .height(42.dp)
                             )
                         }
                     }
 
-                    // Active Country / Node Selector Pill
+                    // Active Server Selector Pill
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -368,7 +507,7 @@ fun DashboardScreen(
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 ScrambleRevealText(
-                                    text = activeServer?.name ?: "NO_NODE_SELECTED",
+                                    text = activeServer?.name ?: "SMART_AUTO_NODE",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = VpnPalette.TextPrimary,
                                     maxLines = 1,
@@ -376,10 +515,10 @@ fun DashboardScreen(
                                 )
                                 Text(
                                     text = if (activeServer != null) {
-                                        val lat = if (activeServer.latencyMs >= 0) "${activeServer.latencyMs} ms" else "UNPROBED"
+                                        val lat = if (activeServer.latencyMs >= 0) "${activeServer.latencyMs} ms" else "AUTO_PING"
                                         "${activeServer.countryName} // $lat // ${activeServer.endpoint}"
                                     } else {
-                                        "$totalServers node(s) synced — tap to choose or import"
+                                        "Tap Connect for 1-click Auto Provision or pick QR"
                                     },
                                     style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
                                     color = spectrumSecondary,
@@ -395,7 +534,7 @@ fun DashboardScreen(
                         }
                     }
 
-                    // Primary Connect & Auto Best Option Row
+                    // Primary 1-Click Connect + Rotate / Auto Best Actions
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -415,14 +554,16 @@ fun DashboardScreen(
                             )
                         ) {
                             Text(
-                                text = if (isConnected) "[ DISCONNECT ]" else "[ EXECUTE_VPN ]",
+                                text = if (isConnected) "[ DISCONNECT ]" else "[ 1-TAP CONNECT ]",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold
                             )
                         }
 
                         OutlinedButton(
-                            onClick = onAutoConnectClick,
+                            onClick = {
+                                if (isConnected) onRotateNodeClick() else onAutoConnectClick()
+                            },
                             enabled = !isBusy && totalServers > 0,
                             modifier = Modifier
                                 .height(52.dp)
@@ -432,14 +573,14 @@ fun DashboardScreen(
                             border = BorderStroke(1.2.dp, spectrumSecondary.copy(alpha = 0.85f))
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.AutoAwesome,
-                                contentDescription = "Auto Select Best Server",
+                                imageVector = if (isConnected) Icons.Filled.SwapHoriz else Icons.Filled.AutoAwesome,
+                                contentDescription = if (isConnected) "Rotate Node & IP" else "Auto Select Best Server",
                                 tint = spectrumSecondary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = if (autoSelectEnabled) "AUTO_BEST" else "SMART_PICK",
+                                text = if (isConnected) "ROTATE_IP" else "AUTO_BEST",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = spectrumSecondary
                             )
@@ -448,7 +589,7 @@ fun DashboardScreen(
                 }
             }
 
-            // Live Traffic Telemetry Cards
+            // Thunder Real-Time Speedometer & Data Usage Cards
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -457,7 +598,8 @@ fun DashboardScreen(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Filled.ArrowDownward,
                     label = "DOWNLINK // RX",
-                    value = formatBytes(trafficStats.rxBytes),
+                    speed = "${formatBytes(trafficStats.rxBytesPerSec)}/s",
+                    total = "Total ${formatBytes(trafficStats.rxBytes)}",
                     accent = spectrumPrimary,
                     secondaryAccent = spectrumSecondary
                 )
@@ -465,7 +607,8 @@ fun DashboardScreen(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Filled.ArrowUpward,
                     label = "UPLINK // TX",
-                    value = formatBytes(trafficStats.txBytes),
+                    speed = "${formatBytes(trafficStats.txBytesPerSec)}/s",
+                    total = "Total ${formatBytes(trafficStats.txBytes)}",
                     accent = spectrumSecondary,
                     secondaryAccent = spectrumAlt
                 )
@@ -476,7 +619,7 @@ fun DashboardScreen(
                 borderColor = spectrumSecondary,
                 secondaryBorderColor = spectrumAlt
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -542,7 +685,7 @@ fun DashboardScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 ScrambleRevealText(
-                                    text = "IP_SPOOFED: $baselineIp -> ${ipInfo?.ip}",
+                                    text = "IP_ROTATED: $baselineIp -> ${ipInfo?.ip}",
                                     style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
                                     color = spectrumPrimary
                                 )
@@ -586,18 +729,6 @@ fun DashboardScreen(
                             )
                         }
                     }
-
-                    if (ipInfo != null && (ipInfo.city.isNotBlank() || ipInfo.isp.isNotBlank())) {
-                        TypewriterTerminalText(
-                            text = listOfNotNull(
-                                ipInfo.city.takeIf { it.isNotBlank() },
-                                ipInfo.isp.takeIf { it.isNotBlank() },
-                                "SRC:${ipInfo.source}"
-                            ).joinToString(" // "),
-                            color = VpnPalette.TextSecondary,
-                            showCursor = false
-                        )
-                    }
                 }
             }
 
@@ -609,30 +740,50 @@ fun DashboardScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         ScrambleRevealText(
-                            text = ":: DEPLOY_YOUR_OWN_WG_NODES",
+                            text = ":: AUTO_SYNC_OR_SCAN_QR",
                             style = MaterialTheme.typography.titleMedium,
                             color = spectrumPrimary
                         )
                         Text(
-                            text = "Scan a WireGuard QR config from your VPS or connect your Cloudflare Worker API to populate multi-country nodes.",
+                            text = "Link your Cloudflare Worker once for 1-click multi-country auto-connect (no custom.conf needed), or import a WireGuard QR config.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = VpnPalette.TextSecondary
                         )
-                        OutlinedButton(
-                            onClick = onOpenQrScanner,
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .testTag("dashboard_quick_scan_button"),
-                            shape = CutCornerShape(10.dp),
-                            border = BorderStroke(1.dp, spectrumPrimary)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.QrCodeScanner,
-                                contentDescription = null,
-                                tint = spectrumPrimary
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("[ IMPORT_QR / .CONF ]", color = spectrumPrimary)
+                            Button(
+                                onClick = onOpenQuickSetup,
+                                shape = CutCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = spectrumPrimary,
+                                    contentColor = VpnPalette.ObsidianBg
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                            ) {
+                                Text("[ WORKER_SYNC ]", fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = onOpenQrScanner,
+                                shape = CutCornerShape(10.dp),
+                                border = BorderStroke(1.dp, spectrumSecondary),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("dashboard_quick_scan_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.QrCodeScanner,
+                                    contentDescription = null,
+                                    tint = spectrumSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("[ QR ]", color = spectrumSecondary)
+                            }
                         }
                     }
                 }
@@ -646,7 +797,8 @@ private fun TrafficStatCard(
     modifier: Modifier = Modifier,
     icon: ImageVector,
     label: String,
-    value: String,
+    speed: String,
+    total: String,
     accent: Color,
     secondaryAccent: Color
 ) {
@@ -675,13 +827,27 @@ private fun TrafficStatCard(
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            text = value,
+            text = speed,
             fontFamily = JetBrainsMonoFontFamily,
-            fontSize = 18.sp,
+            fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
             color = VpnPalette.TextPrimary
         )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = total,
+            fontFamily = JetBrainsMonoFontFamily,
+            fontSize = 11.sp,
+            color = VpnPalette.TextSecondary
+        )
     }
+}
+
+private fun formatDuration(totalSeconds: Long): String {
+    val h = totalSeconds / 3600L
+    val m = (totalSeconds % 3600L) / 60L
+    val s = totalSeconds % 60L
+    return String.format("%02d:%02d:%02d", h, m, s)
 }
 
 private fun formatBytes(bytes: Long): String {

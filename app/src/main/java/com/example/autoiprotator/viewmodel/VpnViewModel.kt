@@ -34,6 +34,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private enum class PendingConnectMode {
+    AUTO_OR_SELECTED,
+    FORCE_AUTO,
+    COUNTRY_QUICK_PICK,
+    ROTATE_NEXT
+}
+
 class VpnViewModel(
     private val repository: VpnRepository,
     private val vpnEngine: VpnEngine,
@@ -119,11 +126,17 @@ class VpnViewModel(
     private val _trafficStats = MutableStateFlow(TunnelTrafficStats())
     val trafficStats = _trafficStats.asStateFlow()
 
+    private val _sessionSeconds = MutableStateFlow(0L)
+    val sessionSeconds = _sessionSeconds.asStateFlow()
+
     private val _isSyncingWorker = MutableStateFlow(false)
     val isSyncingWorker = _isSyncingWorker.asStateFlow()
 
     private val _isProbingLatencies = MutableStateFlow(false)
     val isProbingLatencies = _isProbingLatencies.asStateFlow()
+
+    private val _showQuickSetupSheet = MutableStateFlow(false)
+    val showQuickSetupSheet = _showQuickSetupSheet.asStateFlow()
 
     // Held strictly in memory (never written to Firestore or logs)
     private val _workerBearerToken = MutableStateFlow("")
@@ -136,6 +149,8 @@ class VpnViewModel(
     val errorMessage = _errorMessage.asStateFlow()
 
     private var statsJob: Job? = null
+    private var pendingMode: PendingConnectMode = PendingConnectMode.AUTO_OR_SELECTED
+    private var pendingCountryCode: String = "AUTO"
 
     init {
         viewModelScope.launch {
@@ -164,6 +179,14 @@ class VpnViewModel(
         _errorMessage.value = null
     }
 
+    fun dismissQuickSetupSheet() {
+        _showQuickSetupSheet.value = false
+    }
+
+    fun openQuickSetupSheet() {
+        _showQuickSetupSheet.value = true
+    }
+
     fun currentServerList(): List<VpnServerProfile> =
         (serversState.value as? UiState.Success)?.data.orEmpty()
 
@@ -177,98 +200,227 @@ class VpnViewModel(
     }
 
     fun connectWithAutoOrSelected(requestPermission: () -> Unit) {
+        pendingMode = PendingConnectMode.AUTO_OR_SELECTED
         if (vpnEngine.getVpnPermissionIntent() != null) {
             requestPermission()
             return
         }
-        startTunnelInternal(forceAutoSelect = false)
+        executePendingConnect()
     }
 
     fun connectSpecificServer(server: VpnServerProfile, requestPermission: () -> Unit) {
         _selectedServerId.value = server.id
+        pendingMode = PendingConnectMode.AUTO_OR_SELECTED
         if (vpnEngine.getVpnPermissionIntent() != null) {
             requestPermission()
             return
         }
-        startTunnelInternal(forceAutoSelect = false)
+        executePendingConnect()
     }
 
     fun autoSelectAndConnect(requestPermission: () -> Unit) {
+        pendingMode = PendingConnectMode.FORCE_AUTO
         if (vpnEngine.getVpnPermissionIntent() != null) {
             requestPermission()
             return
         }
-        startTunnelInternal(forceAutoSelect = true)
+        executePendingConnect()
+    }
+
+    fun oneClickConnectCountry(countryCode: String, requestPermission: () -> Unit) {
+        if (countryCode.equals("AUTO", ignoreCase = true)) {
+            autoSelectAndConnect(requestPermission)
+            return
+        }
+        pendingMode = PendingConnectMode.COUNTRY_QUICK_PICK
+        pendingCountryCode = countryCode.uppercase()
+        if (vpnEngine.getVpnPermissionIntent() != null) {
+            requestPermission()
+            return
+        }
+        executePendingConnect()
+    }
+
+    fun rotateToNextNode(requestPermission: () -> Unit) {
+        pendingMode = PendingConnectMode.ROTATE_NEXT
+        if (vpnEngine.getVpnPermissionIntent() != null) {
+            requestPermission()
+            return
+        }
+        executePendingConnect()
     }
 
     fun onVpnPermissionResult(granted: Boolean) {
         if (granted) {
-            startTunnelInternal(forceAutoSelect = false)
+            executePendingConnect()
         } else {
             _errorMessage.value = "Android VPN permission is required to activate the WireGuard tunnel."
         }
     }
 
-    private fun startTunnelInternal(forceAutoSelect: Boolean) {
-        val servers = currentServerList()
-        if (servers.isEmpty()) {
-            _errorMessage.value = "No WireGuard servers configured yet. Scan a QR code or sync your Cloudflare Worker API."
-            return
-        }
-
+    fun quickSyncAndConnect(
+        workerUrl: String,
+        bearerToken: String,
+        requestPermission: () -> Unit
+    ) {
         viewModelScope.launch {
+            _showQuickSetupSheet.value = false
+            _isSyncingWorker.value = true
             _errorMessage.value = null
-            _bannerMessage.value = null
-            val prefs = (preferencesState.value as? UiState.Success)?.data
-            val useAuto = forceAutoSelect || (prefs?.autoSelectEnabled == true && _selectedServerId.value == null)
+            _workerBearerToken.value = bearerToken
 
-            val targetServer = if (useAuto) {
-                _tunnelStatus.value = TunnelStatus.AUTO_SELECTING
-                val latencies = ServerLatencyProber.measureServers(servers)
-                val updatedList = servers.map { s ->
-                    val measured = latencies[s.id] ?: s.latencyMs
-                    if (measured != s.latencyMs) {
-                        repository.updateServerLatency(currentUserId, s.id, measured)
-                    }
-                    s.copy(latencyMs = measured)
-                }
-                ServerLatencyProber.selectBestServer(
-                    updatedList,
-                    prefs?.preferredCountryCode ?: "AUTO"
-                )
-            } else {
-                resolveActiveServer()
-            }
-
-            if (targetServer == null) {
-                _tunnelStatus.value = TunnelStatus.DISCONNECTED
-                _errorMessage.value = "Unable to select a WireGuard server."
+            val cleanUrlResult = CloudflareWorkerApiClient.normalizeAndValidateBaseUrl(workerUrl)
+            if (cleanUrlResult.isFailure) {
+                _isSyncingWorker.value = false
+                _errorMessage.value = cleanUrlResult.exceptionOrNull()?.message ?: "Invalid Worker URL."
                 return@launch
             }
+            val cleanUrl = cleanUrlResult.getOrThrow()
+            val prefs = (preferencesState.value as? UiState.Success)?.data
+            repository.updateWorkerSettings(
+                userId = currentUserId,
+                workerBaseUrl = cleanUrl,
+                autoSelectEnabled = prefs?.autoSelectEnabled ?: true,
+                preferredCountryCode = prefs?.preferredCountryCode ?: "AUTO"
+            )
 
-            _selectedServerId.value = targetServer.id
-            _tunnelStatus.value = TunnelStatus.CONNECTING
+            val fetchResult = CloudflareWorkerApiClient.fetchServers(
+                baseUrl = cleanUrl,
+                bearerToken = bearerToken,
+                userId = currentUserId
+            )
+            _isSyncingWorker.value = false
 
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    vpnEngine.connect(targetServer.toWireGuardConfigString())
-                    check(vpnEngine.isConnected()) { "WireGuard tunnel did not enter UP state." }
-                }
-            }
-
-            result.fold(
-                onSuccess = {
-                    _tunnelStatus.value = TunnelStatus.CONNECTED
-                    _bannerMessage.value = "Connected to ${targetServer.name} (${targetServer.countryCode})"
-                    startStatsPolling()
-                    verifyPublicIp(recordBaseline = false, logContextServer = targetServer)
+            fetchResult.fold(
+                onSuccess = { syncedServers ->
+                    if (syncedServers.isEmpty()) {
+                        _errorMessage.value = "Worker API responded, but returned 0 WireGuard servers."
+                    } else {
+                        syncedServers.forEach { repository.upsertServer(currentUserId, it) }
+                        pendingMode = PendingConnectMode.FORCE_AUTO
+                        if (vpnEngine.getVpnPermissionIntent() != null) {
+                            requestPermission()
+                        } else {
+                            startTunnelWithServers(
+                                initialServers = syncedServers,
+                                mode = PendingConnectMode.FORCE_AUTO,
+                                countryCode = "AUTO"
+                            )
+                        }
+                    }
                 },
                 onFailure = { err ->
-                    _tunnelStatus.value = TunnelStatus.ERROR
-                    _errorMessage.value = err.message ?: "WireGuard connection failed."
+                    _errorMessage.value = err.message ?: "Worker sync failed."
                 }
             )
         }
+    }
+
+    private fun executePendingConnect() {
+        val mode = pendingMode
+        val country = pendingCountryCode
+        viewModelScope.launch {
+            var servers = currentServerList()
+            val prefs = (preferencesState.value as? UiState.Success)?.data
+            val workerUrl = prefs?.workerBaseUrl.orEmpty()
+
+            // Thunder-style zero-friction auto-discovery: if local list is empty but Worker URL is saved, auto-sync first!
+            if (servers.isEmpty() && workerUrl.isNotBlank()) {
+                _tunnelStatus.value = TunnelStatus.AUTO_SELECTING
+                val synced = CloudflareWorkerApiClient.fetchServers(
+                    baseUrl = workerUrl,
+                    bearerToken = _workerBearerToken.value,
+                    userId = currentUserId
+                ).getOrNull().orEmpty()
+                if (synced.isNotEmpty()) {
+                    synced.forEach { repository.upsertServer(currentUserId, it) }
+                    servers = synced
+                }
+            }
+
+            if (servers.isEmpty()) {
+                _tunnelStatus.value = TunnelStatus.DISCONNECTED
+                _showQuickSetupSheet.value = true
+                return@launch
+            }
+
+            startTunnelWithServers(
+                initialServers = servers,
+                mode = mode,
+                countryCode = country
+            )
+        }
+    }
+
+    private suspend fun startTunnelWithServers(
+        initialServers: List<VpnServerProfile>,
+        mode: PendingConnectMode,
+        countryCode: String
+    ) {
+        _errorMessage.value = null
+        _bannerMessage.value = null
+        val prefs = (preferencesState.value as? UiState.Success)?.data
+        val useAuto = mode != PendingConnectMode.AUTO_OR_SELECTED ||
+            (prefs?.autoSelectEnabled == true && _selectedServerId.value == null)
+
+        val targetServer = if (useAuto) {
+            _tunnelStatus.value = TunnelStatus.AUTO_SELECTING
+            val latencies = ServerLatencyProber.measureServers(initialServers)
+            val updatedList = initialServers.map { s ->
+                val measured = latencies[s.id] ?: s.latencyMs
+                if (measured != s.latencyMs) {
+                    repository.updateServerLatency(currentUserId, s.id, measured)
+                }
+                s.copy(latencyMs = measured)
+            }
+            when (mode) {
+                PendingConnectMode.COUNTRY_QUICK_PICK -> {
+                    ServerLatencyProber.selectBestServer(updatedList, countryCode)
+                }
+                PendingConnectMode.ROTATE_NEXT -> {
+                    val currentId = _selectedServerId.value
+                    val candidates = updatedList.filter { it.id != currentId }.ifEmpty { updatedList }
+                    ServerLatencyProber.selectBestServer(candidates, "AUTO")
+                }
+                else -> {
+                    ServerLatencyProber.selectBestServer(
+                        updatedList,
+                        prefs?.preferredCountryCode ?: "AUTO"
+                    )
+                }
+            }
+        } else {
+            resolveActiveServer()
+        }
+
+        if (targetServer == null) {
+            _tunnelStatus.value = TunnelStatus.DISCONNECTED
+            _errorMessage.value = "Unable to select a WireGuard server."
+            return
+        }
+
+        _selectedServerId.value = targetServer.id
+        _tunnelStatus.value = TunnelStatus.CONNECTING
+
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                vpnEngine.connect(targetServer.toWireGuardConfigString())
+                check(vpnEngine.isConnected()) { "WireGuard tunnel did not enter UP state." }
+            }
+        }
+
+        result.fold(
+            onSuccess = {
+                _tunnelStatus.value = TunnelStatus.CONNECTED
+                _bannerMessage.value = "Tunnel locked: ${targetServer.name} (${targetServer.countryCode})"
+                startStatsPolling(resetSessionTimer = true)
+                verifyPublicIp(recordBaseline = false, logContextServer = targetServer)
+            },
+            onFailure = { err ->
+                _tunnelStatus.value = TunnelStatus.ERROR
+                _errorMessage.value = err.message ?: "WireGuard connection failed."
+            }
+        )
     }
 
     fun disconnect() {
@@ -280,6 +432,7 @@ class VpnViewModel(
             }
             statsJob?.cancel()
             _trafficStats.value = TunnelTrafficStats()
+            _sessionSeconds.value = 0L
             result.fold(
                 onSuccess = {
                     _tunnelStatus.value = TunnelStatus.DISCONNECTED
@@ -303,14 +456,31 @@ class VpnViewModel(
         }
     }
 
-    private fun startStatsPolling() {
+    private fun startStatsPolling(resetSessionTimer: Boolean = false) {
         statsJob?.cancel()
+        if (resetSessionTimer) {
+            _sessionSeconds.value = 0L
+        }
         statsJob = viewModelScope.launch {
+            var prevRx = 0L
+            var prevTx = 0L
+            var firstSample = true
             while (isActive && vpnEngine.isConnected()) {
-                _trafficStats.value = withContext(Dispatchers.IO) {
+                val raw = withContext(Dispatchers.IO) {
                     vpnEngine.getStatistics()
                 }
-                delay(1500L)
+                val rxRate = if (firstSample) 0L else (raw.rxBytes - prevRx).coerceAtLeast(0L)
+                val txRate = if (firstSample) 0L else (raw.txBytes - prevTx).coerceAtLeast(0L)
+                prevRx = raw.rxBytes
+                prevTx = raw.txBytes
+                firstSample = false
+
+                _trafficStats.value = raw.copy(
+                    rxBytesPerSec = rxRate,
+                    txBytesPerSec = txRate
+                )
+                _sessionSeconds.value = _sessionSeconds.value + 1L
+                delay(1000L)
             }
         }
     }
@@ -536,6 +706,7 @@ class VpnViewModel(
 
     fun cleanupOnSignOut() {
         statsJob?.cancel()
+        _sessionSeconds.value = 0L
         if (vpnEngine.isConnected()) {
             try {
                 vpnEngine.disconnect()

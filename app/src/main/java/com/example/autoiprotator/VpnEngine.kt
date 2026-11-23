@@ -12,7 +12,9 @@ import java.io.ByteArrayInputStream
 
 data class TunnelTrafficStats(
     val rxBytes: Long = 0L,
-    val txBytes: Long = 0L
+    val txBytes: Long = 0L,
+    val rxBytesPerSec: Long = 0L,
+    val txBytesPerSec: Long = 0L
 )
 
 data class GeneratedWireGuardKeys(

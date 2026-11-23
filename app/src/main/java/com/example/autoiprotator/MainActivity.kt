@@ -78,6 +78,7 @@ import com.example.autoiprotator.ui.DashboardScreen
 import com.example.autoiprotator.ui.QrScannerScreen
 import com.example.autoiprotator.ui.SettingsScreen
 import com.example.autoiprotator.ui.components.HackerBackdrop
+import com.example.autoiprotator.ui.components.QuickSetupSheet
 import com.example.autoiprotator.ui.components.ScrambleRevealText
 import com.example.autoiprotator.ui.components.TypewriterTerminalText
 import com.example.autoiprotator.ui.components.rememberHackerSpectrumColor
@@ -190,8 +191,10 @@ private fun AuthenticatedVpnApp(
     val baselineIp by viewModel.baselineIp.collectAsStateWithLifecycle()
     val isVerifyingIp by viewModel.isVerifyingIp.collectAsStateWithLifecycle()
     val trafficStats by viewModel.trafficStats.collectAsStateWithLifecycle()
+    val sessionSeconds by viewModel.sessionSeconds.collectAsStateWithLifecycle()
     val isSyncingWorker by viewModel.isSyncingWorker.collectAsStateWithLifecycle()
     val isProbingLatencies by viewModel.isProbingLatencies.collectAsStateWithLifecycle()
+    val showQuickSetupSheet by viewModel.showQuickSetupSheet.collectAsStateWithLifecycle()
     val workerBearerToken by viewModel.workerBearerToken.collectAsStateWithLifecycle()
     val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
@@ -379,18 +382,24 @@ private fun AuthenticatedVpnApp(
                             AppTab.CONNECT -> DashboardScreen(
                                 tunnelStatus = tunnelStatus,
                                 activeServer = activeServer,
-                                totalServers = serverList.size,
+                                servers = serverList,
                                 autoSelectEnabled = prefs?.autoSelectEnabled ?: true,
+                                sessionSeconds = sessionSeconds,
                                 ipInfo = ipInfo,
                                 baselineIp = baselineIp,
                                 isVerifyingIp = isVerifyingIp,
                                 trafficStats = trafficStats,
                                 onConnectClick = { viewModel.connectWithAutoOrSelected(requestVpnPermission) },
                                 onAutoConnectClick = { viewModel.autoSelectAndConnect(requestVpnPermission) },
+                                onQuickCountryConnect = { code ->
+                                    viewModel.oneClickConnectCountry(code, requestVpnPermission)
+                                },
+                                onRotateNodeClick = { viewModel.rotateToNextNode(requestVpnPermission) },
                                 onDisconnectClick = { viewModel.disconnect() },
                                 onVerifyIpClick = { viewModel.verifyPublicIp() },
                                 onOpenCountries = { currentTab = AppTab.COUNTRIES },
-                                onOpenQrScanner = { currentTab = AppTab.QR_SCAN }
+                                onOpenQrScanner = { currentTab = AppTab.QR_SCAN },
+                                onOpenQuickSetup = { viewModel.openQuickSetupSheet() }
                             )
 
                             AppTab.COUNTRIES -> CountriesScreen(
@@ -458,6 +467,22 @@ private fun AuthenticatedVpnApp(
                     }
                 }
             }
+        }
+
+        if (showQuickSetupSheet) {
+            QuickSetupSheet(
+                initialWorkerUrl = prefs?.workerBaseUrl.orEmpty(),
+                initialToken = workerBearerToken,
+                accentColor = spectrumPrimary,
+                secondaryColor = spectrumSecondary,
+                onDismiss = { viewModel.dismissQuickSetupSheet() },
+                onSyncAndAutoConnect = { url, token ->
+                    viewModel.quickSyncAndConnect(url, token, requestVpnPermission)
+                },
+                onOpenQrOrConf = {
+                    currentTab = AppTab.QR_SCAN
+                }
+            )
         }
     }
 }
