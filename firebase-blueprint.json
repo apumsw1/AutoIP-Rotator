@@ -1,0 +1,231 @@
+{
+  "entities": {
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "User profile and Cloudflare Worker management API settings.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name."
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address (optional)."
+        },
+        "workerBaseUrl": {
+          "type": "string",
+          "description": "Base HTTPS URL of the user's Cloudflare Worker management API."
+        },
+        "autoSelectEnabled": {
+          "type": "boolean",
+          "description": "Whether Auto Server Selection is active."
+        },
+        "preferredCountryCode": {
+          "type": "string",
+          "description": "Preferred ISO country code or AUTO."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "workerBaseUrl",
+        "autoSelectEnabled",
+        "preferredCountryCode",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "VpnServerProfile": {
+      "title": "VpnServerProfile",
+      "description": "WireGuard VPN server node and client peer profile owned by the user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Server display label."
+        },
+        "countryCode": {
+          "type": "string",
+          "description": "ISO 3166-1 alpha-2 country code."
+        },
+        "countryName": {
+          "type": "string",
+          "description": "Country name."
+        },
+        "city": {
+          "type": "string",
+          "description": "City or region."
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "WireGuard UDP endpoint host:port."
+        },
+        "serverPublicKey": {
+          "type": "string",
+          "description": "WireGuard server Curve25519 public key."
+        },
+        "clientAddress": {
+          "type": "string",
+          "description": "Tunnel client interface CIDR address."
+        },
+        "clientPrivateKey": {
+          "type": "string",
+          "description": "On-device or imported client Curve25519 private key."
+        },
+        "presharedKey": {
+          "type": "string",
+          "description": "Optional WireGuard preshared key."
+        },
+        "dns": {
+          "type": "string",
+          "description": "Comma-separated DNS servers."
+        },
+        "allowedIps": {
+          "type": "string",
+          "description": "Comma-separated AllowedIPs CIDR list."
+        },
+        "mtu": {
+          "type": "integer",
+          "description": "Tunnel MTU (1200-1500)."
+        },
+        "persistentKeepalive": {
+          "type": "integer",
+          "description": "Persistent keepalive seconds (0-120)."
+        },
+        "latencyMs": {
+          "type": "integer",
+          "description": "Measured latency in milliseconds (-1 if unmeasured)."
+        },
+        "loadPercent": {
+          "type": "integer",
+          "description": "Server load percentage (0-100)."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["worker", "qr", "manual"],
+          "description": "Origin of this server profile."
+        },
+        "favorite": {
+          "type": "boolean",
+          "description": "Whether server is pinned as favorite."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "countryCode",
+        "countryName",
+        "city",
+        "endpoint",
+        "serverPublicKey",
+        "clientAddress",
+        "clientPrivateKey",
+        "dns",
+        "allowedIps",
+        "mtu",
+        "persistentKeepalive",
+        "latencyMs",
+        "loadPercent",
+        "source",
+        "favorite",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ConnectionAuditLog": {
+      "title": "ConnectionAuditLog",
+      "description": "Connection, IP verification, and WireGuard key rotation event record.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase UID."
+        },
+        "serverName": {
+          "type": "string",
+          "description": "Target server label."
+        },
+        "countryCode": {
+          "type": "string",
+          "description": "Target country code."
+        },
+        "verifiedIp": {
+          "type": "string",
+          "description": "Verified public IP address."
+        },
+        "verifiedCountry": {
+          "type": "string",
+          "description": "Verified public IP country."
+        },
+        "eventType": {
+          "type": "string",
+          "enum": ["connected", "disconnected", "ip_verified", "key_rotated"],
+          "description": "Audit event category."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Event timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "serverName",
+        "countryCode",
+        "verifiedIp",
+        "verifiedCountry",
+        "eventType",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserPreferences"
+      },
+      "description": "User profile and Cloudflare Worker management configuration."
+    },
+    "/users/{userId}/vpn_servers/{serverId}": {
+      "schema": {
+        "$ref": "#/entities/VpnServerProfile"
+      },
+      "description": "User-owned WireGuard VPN server configurations."
+    },
+    "/users/{userId}/connection_logs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/ConnectionAuditLog"
+      },
+      "description": "User-owned VPN connection, verification, and key rotation audit logs."
+    }
+  }
+}

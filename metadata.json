@@ -1,0 +1,10 @@
+{
+  "name": "Ultra Multi VPN",
+  "description": "WireGuard multi-country VPN client with Cloudflare Worker management API, secure Google Sign-In, auto server selection, and QR config scanning.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

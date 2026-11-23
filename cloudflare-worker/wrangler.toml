@@ -1,0 +1,8 @@
+name = "ultra-multi-vpn-api"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Create a KV namespace with: wrangler kv namespace create SERVERS_KV
+# [[kv_namespaces]]
+# binding = "SERVERS_KV"
+# id = "<YOUR_KV_NAMESPACE_ID>"

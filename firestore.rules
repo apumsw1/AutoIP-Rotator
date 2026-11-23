@@ -1,0 +1,166 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny all unspecified paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUserPreferences(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+             data.workerBaseUrl is string && data.workerBaseUrl.size() <= 500 &&
+             data.autoSelectEnabled is bool &&
+             data.preferredCountryCode is string && data.preferredCountryCode.size() <= 12 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidVpnServer(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.countryCode is string && data.countryCode.size() >= 2 && data.countryCode.size() <= 8 &&
+             data.countryName is string && data.countryName.size() >= 1 && data.countryName.size() <= 80 &&
+             data.city is string && data.city.size() <= 80 &&
+             data.endpoint is string && data.endpoint.size() >= 3 && data.endpoint.size() <= 200 &&
+             data.serverPublicKey is string && data.serverPublicKey.size() >= 40 && data.serverPublicKey.size() <= 64 &&
+             data.clientAddress is string && data.clientAddress.size() >= 3 && data.clientAddress.size() <= 120 &&
+             data.clientPrivateKey is string && data.clientPrivateKey.size() >= 40 && data.clientPrivateKey.size() <= 64 &&
+             (!('presharedKey' in data) || (data.presharedKey is string && data.presharedKey.size() <= 64)) &&
+             data.dns is string && data.dns.size() <= 120 &&
+             data.allowedIps is string && data.allowedIps.size() >= 3 && data.allowedIps.size() <= 120 &&
+             data.mtu is int && data.mtu >= 1200 && data.mtu <= 1500 &&
+             data.persistentKeepalive is int && data.persistentKeepalive >= 0 && data.persistentKeepalive <= 120 &&
+             data.latencyMs is int && data.latencyMs >= -1 && data.latencyMs <= 60000 &&
+             data.loadPercent is int && data.loadPercent >= 0 && data.loadPercent <= 100 &&
+             data.source in ['worker', 'qr', 'manual'] &&
+             data.favorite is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidConnectionLog(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.serverName is string && data.serverName.size() >= 1 && data.serverName.size() <= 100 &&
+             data.countryCode is string && data.countryCode.size() >= 2 && data.countryCode.size() <= 8 &&
+             data.verifiedIp is string && data.verifiedIp.size() <= 64 &&
+             data.verifiedCountry is string && data.verifiedCountry.size() <= 80 &&
+             data.eventType in ['connected', 'disconnected', 'ip_verified', 'key_rotated'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isOwner(userId) && isValidId(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'displayName', 'workerBaseUrl',
+                         'autoSelectEnabled', 'preferredCountryCode',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'email', 'workerBaseUrl',
+                         'autoSelectEnabled', 'preferredCountryCode',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserPreferences(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUserPreferences(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'displayName', 'email', 'workerBaseUrl',
+                         'autoSelectEnabled', 'preferredCountryCode', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /vpn_servers/{serverId} {
+        allow get: if isOwner(userId) && isValidId(serverId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(serverId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll([
+                           'userId', 'name', 'countryCode', 'countryName', 'city',
+                           'endpoint', 'serverPublicKey', 'clientAddress', 'clientPrivateKey',
+                           'dns', 'allowedIps', 'mtu', 'persistentKeepalive',
+                           'latencyMs', 'loadPercent', 'source', 'favorite',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'name', 'countryCode', 'countryName', 'city',
+                           'endpoint', 'serverPublicKey', 'clientAddress', 'clientPrivateKey',
+                           'presharedKey', 'dns', 'allowedIps', 'mtu', 'persistentKeepalive',
+                           'latencyMs', 'loadPercent', 'source', 'favorite',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidVpnServer(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(serverId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidVpnServer(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'countryCode', 'countryName', 'city',
+                           'endpoint', 'serverPublicKey', 'clientAddress', 'clientPrivateKey',
+                           'presharedKey', 'dns', 'allowedIps', 'mtu', 'persistentKeepalive',
+                           'latencyMs', 'loadPercent', 'source', 'favorite', 'updatedAt'
+                         ]);
+
+        allow delete: if isOwner(userId) && isValidId(serverId);
+      }
+
+      match /connection_logs/{logId} {
+        allow get: if isOwner(userId) && isValidId(logId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(logId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll([
+                           'userId', 'serverName', 'countryCode',
+                           'verifiedIp', 'verifiedCountry', 'eventType', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'serverName', 'countryCode',
+                           'verifiedIp', 'verifiedCountry', 'eventType', 'createdAt'
+                         ]) &&
+                         isValidConnectionLog(incoming());
+
+        allow update: if false;
+
+        allow delete: if isOwner(userId) && isValidId(logId);
+      }
+    }
+  }
+}

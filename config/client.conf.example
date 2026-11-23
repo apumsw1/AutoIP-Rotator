@@ -1,0 +1,13 @@
+[Interface]
+# Client Configuration Template (generate private key on-device or via rotate-keys.sh)
+PrivateKey = <CLIENT_PRIVATE_KEY>
+Address = 10.0.0.2/32
+DNS = 1.1.1.1, 1.0.0.1
+MTU = 1280
+
+[Peer]
+PublicKey = <SERVER_PUBLIC_KEY>
+PresharedKey = <OPTIONAL_PRESHARED_KEY>
+Endpoint = <YOUR_SERVER_IP_OR_DOMAIN>:51820
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25

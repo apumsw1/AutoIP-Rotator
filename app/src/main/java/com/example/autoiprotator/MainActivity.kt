@@ -1,622 +1,463 @@
 package com.example.autoiprotator
 
 import android.app.Activity
-import android.content.Intent
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.net.VpnService
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.Gravity
-import android.view.View
-import android.widget.*
-import java.util.Locale
-import java.util.concurrent.Executors
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.autoiprotator.auth.authStateFlow
+import com.example.autoiprotator.auth.signOut
+import com.example.autoiprotator.data.VpnRepository
+import com.example.autoiprotator.model.TunnelStatus
+import com.example.autoiprotator.model.UiState
+import com.example.autoiprotator.network.ServerLatencyProber
+import com.example.autoiprotator.ui.AuthScreen
+import com.example.autoiprotator.ui.CountriesScreen
+import com.example.autoiprotator.ui.DashboardScreen
+import com.example.autoiprotator.ui.QrScannerScreen
+import com.example.autoiprotator.ui.SettingsScreen
+import com.example.autoiprotator.ui.components.HackerBackdrop
+import com.example.autoiprotator.ui.components.ScrambleRevealText
+import com.example.autoiprotator.ui.components.TypewriterTerminalText
+import com.example.autoiprotator.ui.components.rememberHackerSpectrumColor
+import com.example.autoiprotator.ui.theme.JetBrainsMonoFontFamily
+import com.example.autoiprotator.ui.theme.UltraVpnTheme
+import com.example.autoiprotator.ui.theme.VpnPalette
+import com.example.autoiprotator.viewmodel.VpnViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
+import com.google.firebase.firestore.FirebaseFirestore
 
-class MainActivity : Activity() {
+private enum class AppTab(
+    val label: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector,
+    val testTag: String
+) {
+    CONNECT("TUNNEL", Icons.Filled.Shield, Icons.Outlined.Shield, "nav_tunnel"),
+    COUNTRIES("NODES", Icons.Filled.Public, Icons.Outlined.Public, "nav_countries"),
+    QR_SCAN("SCAN_QR", Icons.Filled.QrCodeScanner, Icons.Outlined.QrCodeScanner, "nav_qr"),
+    SETTINGS("SYS_CFG", Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings")
+}
 
-    private lateinit var engine: VpnEngine
-
-    private lateinit var statusText: TextView
-    private lateinit var ipText: TextView
-    private lateinit var countryText: TextView
-    private lateinit var warpText: TextView
-    private lateinit var connectButton: Button
-    private lateinit var autoSwitch: Switch
-    private lateinit var intervalSpinner: Spinner
-
-    private val executor = Executors.newSingleThreadExecutor()
-    private val handler = Handler(Looper.getMainLooper())
-
-    private var profile: String? = null
-    private var connected = false
-    private var connecting = false
-    private var reconnecting = false
-    private var autoReconnect = false
-    private var reconnectInterval = 60000L
-
-    private var nextReconnect = 0L
-
-    private val vpnRequestCode = 4101
-
-    private val cyan = Color.rgb(0, 225, 255)
-    private val green = Color.rgb(0, 230, 100)
-    private val dark = Color.rgb(2, 9, 23)
-    private val white = Color.WHITE
-    private val muted = Color.rgb(150, 180, 205)
-    private val red = Color.rgb(255, 55, 65)
-
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt()
-
-    private fun background(
-        color: Int,
-        stroke: Int = cyan,
-        radius: Int = 20
-    ): GradientDrawable {
-        return GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = dp(radius).toFloat()
-            setStroke(dp(1), stroke)
-        }
-    }
-
-    private fun makeText(
-        value: String,
-        size: Float,
-        color: Int,
-        bold: Boolean = false
-    ): TextView {
-        return TextView(this).apply {
-            text = value
-            textSize = size
-            setTextColor(color)
-            gravity = Gravity.CENTER
-            if (bold) typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(8), dp(9), dp(8), dp(9))
-        }
-    }
-
-    private fun makeButton(value: String): Button {
-        return Button(this).apply {
-            text = value
-            textSize = 19f
-            isAllCaps = false
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(white)
-            background = background(
-                Color.rgb(0, 125, 45),
-                green,
-                40
-            )
-            stateListAnimator = null
-        }
-    }
-
-    private fun addSpace(parent: LinearLayout, height: Int = 12) {
-        parent.addView(
-            View(this),
-            LinearLayout.LayoutParams(1, dp(height))
-        )
-    }
-
-    private fun makeCard(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(15), dp(15), dp(15), dp(15))
-            background = background(
-                Color.rgb(7, 25, 45),
-                cyan,
-                22
-            )
-        }
-    }
-
-    private fun addCard(parent: LinearLayout, child: View) {
-        parent.addView(
-            child,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                bottomMargin = dp(15)
-            }
-        )
-    }
-
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        engine = VpnEngine(applicationContext)
-
-        buildUI()
-        loadSavedProfile()
-        checkNetwork()
+        enableEdgeToEdge()
+        setContent {
+            UltraVpnTheme {
+                AppContent()
+            }
+        }
     }
+}
 
-    private fun buildUI() {
+@Composable
+fun AppContent() {
+    val auth = Firebase.auth
+    val currentUser by auth.authStateFlow()
+        .collectAsStateWithLifecycle(initialValue = auth.currentUser)
 
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(dark)
-            isFillViewport = true
-        }
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(17), dp(22), dp(17), dp(25))
-        }
-
-        root.addView(
-            makeText("🛡", 55f, cyan, true)
-        )
-
-        root.addView(
-            makeText("ULTRA VPN", 32f, cyan, true)
-        )
-
-        root.addView(
-            makeText(
-                "CLOUDFLARE WARP CONNECTION",
-                12f,
-                green,
-                true
+    val user = currentUser
+    if (user == null) {
+        AuthScreen(onAuthSuccess = { /* AuthStateListener updates automatically */ })
+    } else {
+        key(user.uid) {
+            AuthenticatedVpnApp(
+                currentUserId = user.uid,
+                displayName = user.displayName ?: "VPN Operator",
+                email = user.email
             )
-        )
-
-        addSpace(root, 22)
-
-        val statusCard = makeCard()
-
-        statusCard.addView(
-            makeText("CONNECTION STATUS", 14f, muted, true)
-        )
-
-        statusText = makeText(
-            "DISCONNECTED",
-            26f,
-            Color.YELLOW,
-            true
-        )
-
-        statusCard.addView(statusText)
-
-        addCard(root, statusCard)
-
-        val ipCard = makeCard()
-
-        ipCard.addView(
-            makeText("PUBLIC IP ADDRESS", 14f, cyan, true)
-        )
-
-        ipText = makeText(
-            "Checking...",
-            21f,
-            white,
-            true
-        )
-
-        ipCard.addView(ipText)
-
-        addSpace(ipCard)
-
-        ipCard.addView(
-            makeText("COUNTRY / LOCATION", 13f, muted, true)
-        )
-
-        countryText = makeText(
-            "Checking...",
-            19f,
-            white,
-            true
-        )
-
-        ipCard.addView(countryText)
-
-        addSpace(ipCard)
-
-        warpText = makeText(
-            "WARP: NOT VERIFIED",
-            15f,
-            Color.YELLOW,
-            true
-        )
-
-        ipCard.addView(warpText)
-
-        addCard(root, ipCard)
-
-        connectButton = makeButton("⚡ START VPN")
-
-        connectButton.setOnClickListener {
-            if (connecting || reconnecting) return@setOnClickListener
-
-            if (connected) {
-                disconnectVpn()
-            } else {
-                requestVpnPermission()
-            }
         }
+    }
+}
 
-        root.addView(
-            connectButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(65)
-            ).apply {
-                bottomMargin = dp(18)
-            }
-        )
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AuthenticatedVpnApp(
+    currentUserId: String,
+    displayName: String,
+    email: String?
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val vpnEngine = remember(context) { VpnEngine(context.applicationContext) }
 
-        val autoCard = makeCard()
-
-        autoCard.addView(
-            makeText("AUTO RECONNECT", 18f, cyan, true)
-        )
-
-        autoSwitch = Switch(this).apply {
-            text = "Enable automatic reconnect"
-            textSize = 14f
-            setTextColor(white)
-
-            setOnCheckedChangeListener { _, checked ->
-                autoReconnect = checked
-
-                if (checked && connected) {
-                    nextReconnect =
-                        System.currentTimeMillis() + reconnectInterval
+    val viewModel: VpnViewModel = viewModel(
+        key = currentUserId,
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY]) {
+                    "APPLICATION_KEY missing from CreationExtras"
                 }
+                val databaseId = app.getString(R.string.firestore_database_id)
+                val db = FirebaseFirestore.getInstance(databaseId)
+                VpnViewModel(
+                    repository = VpnRepository(db),
+                    vpnEngine = vpnEngine,
+                    currentUserId = currentUserId,
+                    initialDisplayName = displayName,
+                    initialEmail = email
+                )
             }
         }
+    )
 
-        autoCard.addView(autoSwitch)
-
-        addSpace(autoCard)
-
-        autoCard.addView(
-            makeText("RECONNECT INTERVAL", 13f, muted, true)
-        )
-
-        intervalSpinner = Spinner(this)
-
-        val intervalOptions = arrayOf(
-            "30 seconds",
-            "1 minute",
-            "2 minutes",
-            "5 minutes"
-        )
-
-        intervalSpinner.adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            intervalOptions
-        )
-
-        intervalSpinner.onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-
-                override fun onItemSelected(
-                    parent: AdapterView<*>?,
-                    view: View?,
-                    position: Int,
-                    id: Long
-                ) {
-                    reconnectInterval = when (position) {
-                        0 -> 30000L
-                        1 -> 60000L
-                        2 -> 120000L
-                        else -> 300000L
-                    }
-
-                    if (connected && autoReconnect) {
-                        nextReconnect =
-                            System.currentTimeMillis() + reconnectInterval
-                    }
-                }
-
-                override fun onNothingSelected(
-                    parent: AdapterView<*>?
-                ) = Unit
-            }
-
-        autoCard.addView(
-            intervalSpinner,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(50)
-            )
-        )
-
-        addCard(root, autoCard)
-
-        root.addView(
-            makeText(
-                "POWERED BY CLOUDFLARE WARP",
-                12f,
-                cyan,
-                true
-            )
-        )
-
-        root.addView(
-            makeText(
-                "ULTRA VPN • SECURE NETWORK",
-                10f,
-                muted
-            )
-        )
-
-        scroll.addView(root)
-        setContentView(scroll)
+    val vpnPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        viewModel.onVpnPermissionResult(result.resultCode == Activity.RESULT_OK)
     }
 
-    private fun loadSavedProfile() {
-        profile = CloudflareWarpClient.getSavedProfile(this)
-    }
-
-    private fun requestVpnPermission() {
-
-        val intent = VpnService.prepare(this)
-
+    val requestVpnPermission = {
+        val intent = vpnEngine.getVpnPermissionIntent()
         if (intent != null) {
-            startActivityForResult(intent, vpnRequestCode)
+            vpnPermissionLauncher.launch(intent)
         } else {
-            startConnection()
+            viewModel.onVpnPermissionResult(true)
         }
     }
 
-    @Deprecated("Activity result compatibility")
-    override fun onActivityResult(
-        requestCode: Int,
-        resultCode: Int,
-        data: Intent?
-    ) {
-        super.onActivityResult(requestCode, resultCode, data)
+    val preferencesState by viewModel.preferencesState.collectAsStateWithLifecycle()
+    val serversState by viewModel.serversState.collectAsStateWithLifecycle()
+    val logsState by viewModel.logsState.collectAsStateWithLifecycle()
+    val tunnelStatus by viewModel.tunnelStatus.collectAsStateWithLifecycle()
+    val selectedServerId by viewModel.selectedServerId.collectAsStateWithLifecycle()
+    val selectedCountryFilter by viewModel.selectedCountryFilter.collectAsStateWithLifecycle()
+    val ipInfo by viewModel.ipInfo.collectAsStateWithLifecycle()
+    val baselineIp by viewModel.baselineIp.collectAsStateWithLifecycle()
+    val isVerifyingIp by viewModel.isVerifyingIp.collectAsStateWithLifecycle()
+    val trafficStats by viewModel.trafficStats.collectAsStateWithLifecycle()
+    val isSyncingWorker by viewModel.isSyncingWorker.collectAsStateWithLifecycle()
+    val isProbingLatencies by viewModel.isProbingLatencies.collectAsStateWithLifecycle()
+    val workerBearerToken by viewModel.workerBearerToken.collectAsStateWithLifecycle()
+    val bannerMessage by viewModel.bannerMessage.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
-        if (requestCode == vpnRequestCode) {
-            if (resultCode == RESULT_OK) {
-                startConnection()
-            } else {
-                showError("VPN permission was denied.")
-            }
-        }
+    var currentTab by rememberSaveable { mutableStateOf(AppTab.CONNECT) }
+
+    val serverList = (serversState as? UiState.Success)?.data.orEmpty()
+    val prefs = (preferencesState as? UiState.Success)?.data
+    val activeServer = remember(serverList, selectedServerId, prefs) {
+        selectedServerId?.let { id -> serverList.firstOrNull { it.id == id } }
+            ?: ServerLatencyProber.selectBestServer(serverList, prefs?.preferredCountryCode ?: "AUTO")
     }
 
-    private fun startConnection() {
+    val spectrumPrimary = rememberHackerSpectrumColor(tunnelStatus, phaseOffset = 0f)
+    val spectrumSecondary = rememberHackerSpectrumColor(tunnelStatus, phaseOffset = 0.4f)
 
-        if (connecting || connected) return
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val useRail = maxWidth >= 700.dp
 
-        connecting = true
+        HackerBackdrop(
+            accentColor = spectrumPrimary,
+            secondaryColor = spectrumSecondary,
+            isConnected = tunnelStatus == TunnelStatus.CONNECTED
+        )
 
-        statusText.text = "CONNECTING..."
-        statusText.setTextColor(Color.YELLOW)
-
-        connectButton.isEnabled = false
-        connectButton.text = "PLEASE WAIT..."
-
-        executor.execute {
-            try {
-                val config = profile
-                    ?: CloudflareWarpClient.register(this).also {
-                        profile = it
-                    }
-
-                engine.connect(config)
-
-                val active = engine.isConnected()
-
-                if (!active) {
-                    throw IllegalStateException(
-                        "WireGuard tunnel did not become active."
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            ScrambleRevealText(
+                                text = "[>_ ULTRA MULTI VPN]",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = VpnPalette.TextPrimary
+                            )
+                            TypewriterTerminalText(
+                                text = when (tunnelStatus) {
+                                    TunnelStatus.CONNECTED -> "WG_KERNEL::ENCRYPTED_ONLINE"
+                                    TunnelStatus.CONNECTING,
+                                    TunnelStatus.AUTO_SELECTING -> "WG_KERNEL::HANDSHAKE_ACTIVE"
+                                    TunnelStatus.ERROR -> "WG_KERNEL::FAULT_DETECTED"
+                                    else -> "WG_KERNEL::STANDBY"
+                                },
+                                prefix = "",
+                                color = spectrumPrimary
+                            )
+                        }
+                    },
+                    actions = {
+                        Surface(
+                            modifier = Modifier.padding(end = 12.dp),
+                            shape = CutCornerShape(6.dp),
+                            color = spectrumPrimary.copy(alpha = 0.14f),
+                            border = BorderStroke(1.dp, spectrumPrimary.copy(alpha = 0.7f))
+                        ) {
+                            Text(
+                                text = if (tunnelStatus == TunnelStatus.CONNECTED) "LIVE" else "READY",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = spectrumPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = VpnPalette.ObsidianBg.copy(alpha = 0.88f)
                     )
-                }
-
-                runOnUiThread {
-                    connecting = false
-                    connected = true
-
-                    statusText.text = "TUNNEL ACTIVE"
-                    statusText.setTextColor(green)
-
-                    connectButton.text = "STOP VPN"
-                    connectButton.isEnabled = true
-                    connectButton.background = background(red, red, 40)
-
-                    if (autoReconnect) {
-                        nextReconnect =
-                            System.currentTimeMillis() + reconnectInterval
-                    }
-
-                    checkNetwork()
-                    handler.removeCallbacks(reconnectTask)
-                    handler.postDelayed(reconnectTask, 5000)
-                }
-
-            } catch (error: Exception) {
-                runOnUiThread {
-                    connecting = false
-                    connected = false
-
-                    statusText.text = "CONNECTION FAILED"
-                    statusText.setTextColor(red)
-
-                    connectButton.text = "⚡ START VPN"
-                    connectButton.isEnabled = true
-                    connectButton.background =
-                        background(Color.rgb(0, 125, 45), green, 40)
-
-                    showError(
-                        error.message ?: "Unable to connect to WARP."
-                    )
-                }
-            }
-        }
-    }
-
-    private fun disconnectVpn() {
-
-        connectButton.isEnabled = false
-        statusText.text = "DISCONNECTING..."
-
-        executor.execute {
-            try {
-                engine.disconnect()
-
-                runOnUiThread {
-                    connected = false
-                    connecting = false
-                    reconnecting = false
-
-                    handler.removeCallbacks(reconnectTask)
-
-                    statusText.text = "DISCONNECTED"
-                    statusText.setTextColor(Color.YELLOW)
-
-                    connectButton.text = "⚡ START VPN"
-                    connectButton.isEnabled = true
-                    connectButton.background =
-                        background(Color.rgb(0, 125, 45), green, 40)
-
-                    warpText.text = "WARP: DISCONNECTED"
-                    warpText.setTextColor(Color.YELLOW)
-                }
-
-            } catch (error: Exception) {
-                runOnUiThread {
-                    connectButton.isEnabled = true
-                    showError(
-                        error.message ?: "Disconnect failed."
-                    )
-                }
-            }
-        }
-    }
-
-    private fun checkNetwork() {
-
-        ipText.text = "Checking..."
-        countryText.text = "Checking..."
-        warpText.text = "WARP: VERIFYING..."
-
-        executor.execute {
-            try {
-                val trace = CloudflareWarpClient.checkTrace()
-
-                val ip = trace["ip"] ?: "Unknown"
-                val country = trace["loc"] ?: "Unknown"
-                val warp = trace["warp"] ?: "unknown"
-
-                runOnUiThread {
-                    ipText.text = ip
-                    countryText.text = country
-
-                    if (warp.equals("on", true) ||
-                        warp.equals("plus", true)
+                )
+            },
+            bottomBar = {
+                if (!useRail) {
+                    NavigationBar(
+                        containerColor = VpnPalette.SlateSurface.copy(alpha = 0.94f)
                     ) {
-                        warpText.text = "WARP: VERIFIED"
-                        warpText.setTextColor(green)
-                    } else {
-                        warpText.text = "WARP: NOT VERIFIED"
-                        warpText.setTextColor(Color.YELLOW)
+                        AppTab.entries.forEach { tab ->
+                            val selected = currentTab == tab
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { currentTab = tab },
+                                modifier = Modifier.testTag(tab.testTag),
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.label
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.label,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = spectrumPrimary,
+                                    selectedTextColor = spectrumPrimary,
+                                    indicatorColor = spectrumPrimary.copy(alpha = 0.18f),
+                                    unselectedIconColor = VpnPalette.TextSecondary,
+                                    unselectedTextColor = VpnPalette.TextSecondary
+                                )
+                            )
+                        }
                     }
                 }
-
-            } catch (error: Exception) {
-                runOnUiThread {
-                    ipText.text = "Unavailable"
-                    countryText.text = "Unavailable"
-                    warpText.text = "WARP: CHECK FAILED"
-                    warpText.setTextColor(red)
-                }
             }
-        }
-    }
-
-    private val reconnectTask = object : Runnable {
-        override fun run() {
-
-            if (!connected) return
-
-            if (autoReconnect &&
-                System.currentTimeMillis() >= nextReconnect &&
-                !reconnecting
+        ) { innerPadding ->
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
             ) {
-                reconnectVpn()
-            } else {
-                checkNetwork()
-                handler.postDelayed(this, 30000)
-            }
-        }
-    }
+                if (useRail) {
+                    NavigationRail(
+                        modifier = Modifier.fillMaxHeight(),
+                        containerColor = VpnPalette.SlateSurface.copy(alpha = 0.94f)
+                    ) {
+                        AppTab.entries.forEach { tab ->
+                            val selected = currentTab == tab
+                            NavigationRailItem(
+                                selected = selected,
+                                onClick = { currentTab = tab },
+                                modifier = Modifier.testTag(tab.testTag),
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.label
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.label,
+                                        fontFamily = JetBrainsMonoFontFamily
+                                    )
+                                },
+                                colors = NavigationRailItemDefaults.colors(
+                                    selectedIconColor = spectrumPrimary,
+                                    selectedTextColor = spectrumPrimary,
+                                    indicatorColor = spectrumPrimary.copy(alpha = 0.18f),
+                                    unselectedIconColor = VpnPalette.TextSecondary,
+                                    unselectedTextColor = VpnPalette.TextSecondary
+                                )
+                            )
+                        }
+                    }
+                }
 
-    private fun reconnectVpn() {
-
-        val config = profile ?: return
-
-        if (!connected || reconnecting) return
-
-        reconnecting = true
-
-        statusText.text = "RECONNECTING..."
-        statusText.setTextColor(Color.YELLOW)
-
-        executor.execute {
-            try {
-                engine.disconnect()
-                Thread.sleep(1000)
-                engine.connect(config)
-
-                val active = engine.isConnected()
-
-                runOnUiThread {
-                    reconnecting = false
-                    connected = active
-
-                    if (active) {
-                        statusText.text = "TUNNEL ACTIVE"
-                        statusText.setTextColor(green)
-
-                        nextReconnect =
-                            System.currentTimeMillis() + reconnectInterval
-
-                        checkNetwork()
-                    } else {
-                        statusText.text = "RECONNECT FAILED"
-                        statusText.setTextColor(red)
+                Column(modifier = Modifier.weight(1f).fillMaxSize()) {
+                    val activeMsg = errorMessage ?: bannerMessage
+                    if (!activeMsg.isNullOrBlank()) {
+                        val isErr = errorMessage != null
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            shape = CutCornerShape(8.dp),
+                            color = if (isErr) VpnPalette.CoralDim else VpnPalette.EmeraldDim,
+                            border = BorderStroke(
+                                1.dp,
+                                if (isErr) VpnPalette.CoralError else spectrumPrimary
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "> $activeMsg",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                                    color = VpnPalette.TextPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = { viewModel.dismissMessages() }) {
+                                    Text("[OK]", color = spectrumPrimary)
+                                }
+                            }
+                        }
                     }
 
-                    handler.postDelayed(reconnectTask, 5000)
-                }
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        when (currentTab) {
+                            AppTab.CONNECT -> DashboardScreen(
+                                tunnelStatus = tunnelStatus,
+                                activeServer = activeServer,
+                                totalServers = serverList.size,
+                                autoSelectEnabled = prefs?.autoSelectEnabled ?: true,
+                                ipInfo = ipInfo,
+                                baselineIp = baselineIp,
+                                isVerifyingIp = isVerifyingIp,
+                                trafficStats = trafficStats,
+                                onConnectClick = { viewModel.connectWithAutoOrSelected(requestVpnPermission) },
+                                onAutoConnectClick = { viewModel.autoSelectAndConnect(requestVpnPermission) },
+                                onDisconnectClick = { viewModel.disconnect() },
+                                onVerifyIpClick = { viewModel.verifyPublicIp() },
+                                onOpenCountries = { currentTab = AppTab.COUNTRIES },
+                                onOpenQrScanner = { currentTab = AppTab.QR_SCAN }
+                            )
 
-            } catch (error: Exception) {
-                runOnUiThread {
-                    reconnecting = false
-                    connected = false
+                            AppTab.COUNTRIES -> CountriesScreen(
+                                serversState = serversState,
+                                selectedServerId = selectedServerId,
+                                selectedCountryFilter = selectedCountryFilter,
+                                tunnelStatus = tunnelStatus,
+                                isProbingLatencies = isProbingLatencies,
+                                onSelectCountryFilter = { viewModel.selectCountryFilter(it) },
+                                onProbeLatencies = { viewModel.probeAllServerLatencies() },
+                                onAutoSelectConnect = {
+                                    viewModel.autoSelectAndConnect(requestVpnPermission)
+                                    currentTab = AppTab.CONNECT
+                                },
+                                onConnectServer = { server ->
+                                    viewModel.connectSpecificServer(server, requestVpnPermission)
+                                    currentTab = AppTab.CONNECT
+                                },
+                                onToggleFavorite = { viewModel.toggleFavorite(it) },
+                                onRotateKey = { viewModel.rotateServerClientKey(it) },
+                                onDeleteServer = { viewModel.deleteServer(it) },
+                                onOpenQrScanner = { currentTab = AppTab.QR_SCAN },
+                                onOpenWorkerSettings = { currentTab = AppTab.SETTINGS }
+                            )
 
-                    statusText.text = "RECONNECT FAILED"
-                    statusText.setTextColor(red)
+                            AppTab.QR_SCAN -> QrScannerScreen(
+                                onImportConfig = { raw, name, code, city, source ->
+                                    viewModel.importWireGuardConfig(
+                                        rawConf = raw,
+                                        customName = name,
+                                        countryCode = code,
+                                        city = city,
+                                        source = source
+                                    ) { ok ->
+                                        if (ok) currentTab = AppTab.COUNTRIES
+                                    }
+                                }
+                            )
 
-                    connectButton.text = "⚡ START VPN"
-                    connectButton.isEnabled = true
+                            AppTab.SETTINGS -> SettingsScreen(
+                                userDisplayName = displayName,
+                                userEmail = email,
+                                preferencesState = preferencesState,
+                                logsState = logsState,
+                                workerBearerToken = workerBearerToken,
+                                isSyncingWorker = isSyncingWorker,
+                                onBearerTokenChange = { viewModel.updateWorkerBearerTokenInMemory(it) },
+                                onSavePreferences = { url, auto, country ->
+                                    viewModel.saveWorkerSettings(url, auto, country)
+                                },
+                                onSyncWorker = { url, token ->
+                                    viewModel.syncFromCloudflareWorker(url, token)
+                                },
+                                onSignOutClick = {
+                                    signOut(
+                                        credentialManager = credentialManager,
+                                        scope = scope,
+                                        beforeFirebaseSignOut = {
+                                            viewModel.cleanupOnSignOut()
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
-    }
-
-    private fun showError(message: String) {
-        Toast.makeText(
-            this,
-            message,
-            Toast.LENGTH_LONG
-        ).show()
-    }
-
-    override fun onDestroy() {
-        handler.removeCallbacksAndMessages(null)
-        executor.shutdown()
-        super.onDestroy()
     }
 }

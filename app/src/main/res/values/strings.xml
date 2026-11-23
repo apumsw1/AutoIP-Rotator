@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Ultra Multi VPN</string>
+    <string name="app_tagline">WIREGUARD MULTI-COUNTRY ENGINE</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="status_connected">TUNNEL ACTIVE</string>
+    <string name="status_connecting">ESTABLISHING TUNNEL…</string>
+    <string name="status_disconnected">DISCONNECTED</string>
+    <string name="status_auto_selecting">SELECTING BEST SERVER…</string>
+    <string name="action_connect">Connect VPN</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_verify_ip">Verify IP</string>
+    <string name="action_scan_qr">Scan QR</string>
+    <string name="action_sync_worker">Sync Worker API</string>
+</resources>
