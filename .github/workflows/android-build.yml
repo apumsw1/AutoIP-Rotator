@@ -41,14 +41,34 @@ jobs:
       - name: Prepare signing keystore & Firebase config
         shell: bash
         env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON || vars.GOOGLE_SERVICES_JSON }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
+
+          if [ ! -f debug.keystore ] && [ -n "${DEBUG_KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '\r\n' | base64 -d > debug.keystore
+            test -s debug.keystore
+            echo "Decoded debug.keystore from DEBUG_KEYSTORE_BASE64 secret"
+          fi
 
           if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
             tr -d '\r\n' < debug.keystore.base64 | base64 -d > debug.keystore
             test -s debug.keystore
             echo "Decoded debug.keystore from debug.keystore.base64"
+          fi
+
+          if [ ! -f debug.keystore ]; then
+            echo "::warning::debug.keystore.base64 not found in repo; generating CI debug.keystore for assembleDebug."
+            keytool -genkeypair -noprompt \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
 
           if [ -n "${GOOGLE_SERVICES_JSON:-}" ]; then
