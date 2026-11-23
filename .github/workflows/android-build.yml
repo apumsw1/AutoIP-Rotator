@@ -24,6 +24,33 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Prepare signing keystore & Firebase config
+        shell: bash
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Decoded debug.keystore from debug.keystore.base64"
+          fi
+
+          if [ -n "${GOOGLE_SERVICES_JSON:-}" ]; then
+            trimmed="$(printf '%s' "$GOOGLE_SERVICES_JSON" | sed 's/^[[:space:]]*//')"
+            if [[ "$trimmed" == \{* ]]; then
+              printf '%s\n' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            else
+              printf '%s' "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+            fi
+            echo "Wrote app/google-services.json from GOOGLE_SERVICES_JSON secret"
+          fi
+
+          if [ ! -f app/google-services.json ]; then
+            echo "::error::Missing app/google-services.json. Commit app/google-services.json to the branch or add a GOOGLE_SERVICES_JSON GitHub Actions secret."
+            exit 1
+          fi
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -35,12 +62,12 @@ jobs:
           gradle --version
 
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: gradle assembleDebug --no-daemon
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: AutoIP-Rotator-debug
+          name: UltraMultiVPN-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
