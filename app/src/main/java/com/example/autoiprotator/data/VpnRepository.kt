@@ -25,7 +25,7 @@ import java.util.Locale
 class VpnRepository(
     private val db: FirebaseFirestore,
     private val auth: FirebaseAuth = Firebase.auth
-) {
+) : VpnDataSource {
 
     private fun requireUserId(expectedUid: String? = null): String {
         val uid = auth.currentUser?.uid
@@ -41,7 +41,7 @@ class VpnRepository(
         return clean.ifBlank { db.collection("tmp").document().id }
     }
 
-    fun observeUserPreferences(userId: String): Flow<UserPreferences?> = flow {
+    override fun observeUserPreferences(userId: String): Flow<UserPreferences?> = flow {
         val uid = requireUserId(userId)
         val path = "users/$uid"
         emitAll(
@@ -68,7 +68,7 @@ class VpnRepository(
         )
     }
 
-    suspend fun ensureUserPreferences(
+    override suspend fun ensureUserPreferences(
         userId: String,
         displayName: String,
         email: String?
@@ -102,7 +102,7 @@ class VpnRepository(
         }
     }
 
-    suspend fun updateWorkerSettings(
+    override suspend fun updateWorkerSettings(
         userId: String,
         workerBaseUrl: String,
         autoSelectEnabled: Boolean,
@@ -129,7 +129,7 @@ class VpnRepository(
         }
     }
 
-    fun observeServers(userId: String): Flow<List<VpnServerProfile>> = flow {
+    override fun observeServers(userId: String): Flow<List<VpnServerProfile>> = flow {
         val uid = requireUserId(userId)
         val path = "users/$uid/vpn_servers"
         emitAll(
@@ -159,7 +159,7 @@ class VpnRepository(
         )
     }
 
-    suspend fun upsertServer(userId: String, server: VpnServerProfile): Result<String> {
+    override suspend fun upsertServer(userId: String, server: VpnServerProfile): Result<String> {
         val colPath = "users/$userId/vpn_servers"
         return try {
             val uid = requireUserId(userId)
@@ -211,7 +211,7 @@ class VpnRepository(
         }
     }
 
-    suspend fun toggleFavorite(userId: String, serverId: String, favorite: Boolean): Result<Unit> {
+    override suspend fun toggleFavorite(userId: String, serverId: String, favorite: Boolean): Result<Unit> {
         val path = "users/$userId/vpn_servers/$serverId"
         return try {
             val uid = requireUserId(userId)
@@ -233,7 +233,7 @@ class VpnRepository(
         }
     }
 
-    suspend fun updateServerLatency(userId: String, serverId: String, latencyMs: Long): Result<Unit> {
+    override suspend fun updateServerLatency(userId: String, serverId: String, latencyMs: Long): Result<Unit> {
         val path = "users/$userId/vpn_servers/$serverId"
         return try {
             val uid = requireUserId(userId)
@@ -255,7 +255,7 @@ class VpnRepository(
         }
     }
 
-    suspend fun rotateClientKey(
+    override suspend fun rotateClientKey(
         userId: String,
         serverId: String,
         newPrivateKey: String,
@@ -285,7 +285,7 @@ class VpnRepository(
         }
     }
 
-    suspend fun deleteServer(userId: String, serverId: String): Result<Unit> {
+    override suspend fun deleteServer(userId: String, serverId: String): Result<Unit> {
         val path = "users/$userId/vpn_servers/$serverId"
         return try {
             val uid = requireUserId(userId)
@@ -302,7 +302,7 @@ class VpnRepository(
         }
     }
 
-    fun observeLogs(userId: String): Flow<List<ConnectionAuditLog>> = flow {
+    override fun observeLogs(userId: String): Flow<List<ConnectionAuditLog>> = flow {
         val uid = requireUserId(userId)
         val path = "users/$uid/connection_logs"
         emitAll(
@@ -331,7 +331,7 @@ class VpnRepository(
         )
     }
 
-    suspend fun appendLog(
+    override suspend fun appendLog(
         userId: String,
         serverName: String,
         countryCode: String,

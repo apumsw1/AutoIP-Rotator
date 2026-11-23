@@ -134,7 +134,9 @@ fun CountriesScreen(
                 is UiState.Success -> {
                     val allServers = serversState.data
                     val countryBuckets = remember(allServers) {
-                        allServers.groupBy { it.countryCode }
+                        allServers
+                            .filterNot { it.countryCode.equals("AUTO", ignoreCase = true) }
+                            .groupBy { it.countryCode }
                             .entries
                             .sortedBy { it.value.firstOrNull()?.countryName ?: it.key }
                     }
@@ -447,9 +449,9 @@ private fun ServerCountryCard(
                         border = BorderStroke(1.dp, secondaryGlow.copy(alpha = 0.5f))
                     ) {
                         Text(
-                            text = server.source.uppercase(),
+                            text = if (server.isOpenSourceTor()) "OPEN_TOR" else server.source.uppercase(),
                             style = MaterialTheme.typography.labelSmall,
-                            color = secondaryGlow,
+                            color = if (server.isOpenSourceTor()) primaryGlow else secondaryGlow,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -508,27 +510,29 @@ private fun ServerCountryCard(
                         tint = if (server.favorite) VpnPalette.AmberWarn else VpnPalette.TextSecondary
                     )
                 }
-                IconButton(
-                    onClick = onRotateKey,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag("rotate_key_${server.id}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.VpnKey,
-                        contentDescription = "Regenerate WireGuard Client Key",
-                        tint = secondaryGlow
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.minimumInteractiveComponentSize()
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.DeleteOutline,
-                        contentDescription = "Delete Server",
-                        tint = VpnPalette.CoralError
-                    )
+                if (!server.isOpenSourceTor()) {
+                    IconButton(
+                        onClick = onRotateKey,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("rotate_key_${server.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.VpnKey,
+                            contentDescription = "Regenerate WireGuard Client Key",
+                            tint = secondaryGlow
+                        )
+                    }
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.DeleteOutline,
+                            contentDescription = "Delete Server",
+                            tint = VpnPalette.CoralError
+                        )
+                    }
                 }
             }
 

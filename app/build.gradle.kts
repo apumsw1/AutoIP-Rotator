@@ -15,10 +15,26 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "2.0.0"
+
+        val defaultWorkerUrl = ((project.findProperty("DEFAULT_WORKER_URL") as String?)
+            ?: System.getenv("DEFAULT_WORKER_URL")
+            ?: "")
+            .trim()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        val defaultWorkerToken = ((project.findProperty("DEFAULT_WORKER_TOKEN") as String?)
+            ?: System.getenv("DEFAULT_WORKER_TOKEN")
+            ?: "")
+            .trim()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        buildConfigField("String", "DEFAULT_WORKER_URL", "\"$defaultWorkerUrl\"")
+        buildConfigField("String", "DEFAULT_WORKER_TOKEN", "\"$defaultWorkerToken\"")
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -63,8 +79,12 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Single WireGuard VPN Engine (WARP/Proton/Riseup/VPNGate/OpenVPN3 removed)
+    // Single WireGuard VPN Engine (custom .conf / QR / Worker nodes)
     implementation("com.wireguard.android:tunnel:1.0.20260102")
+
+    // Open-Source No-VPS Multi-Country Network (Tor Project + tun2socks)
+    implementation("info.guardianproject:tor-android:0.4.8.16.1")
+    implementation("com.ooimi.library:tun2socks:1.0.4")
 
     // Firebase Auth + Firestore & Jetpack Credential Manager (Google Sign-In)
     implementation(platform("com.google.firebase:firebase-bom:34.0.0"))

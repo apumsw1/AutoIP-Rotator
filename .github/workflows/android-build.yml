@@ -97,6 +97,9 @@ jobs:
           gradle --version
 
       - name: Build Debug APK
+        env:
+          DEFAULT_WORKER_URL: ${{ secrets.DEFAULT_WORKER_URL || vars.DEFAULT_WORKER_URL }}
+          DEFAULT_WORKER_TOKEN: ${{ secrets.DEFAULT_WORKER_TOKEN }}
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload Debug APK

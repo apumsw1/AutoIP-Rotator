@@ -22,7 +22,18 @@ enum class TunnelStatus {
     ERROR
 }
 
+enum class TunnelProtocol(val wireValue: String) {
+    TOR("tor"),
+    WIREGUARD("wireguard");
+
+    companion object {
+        fun fromRaw(raw: String?): TunnelProtocol =
+            entries.firstOrNull { it.wireValue.equals(raw, ignoreCase = true) } ?: WIREGUARD
+    }
+}
+
 enum class ServerSource(val wireValue: String) {
+    OPEN_SOURCE("open"),
     WORKER("worker"),
     QR("qr"),
     MANUAL("manual");
@@ -84,6 +95,13 @@ data class VpnServerProfile(
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null
 ) {
+    fun isOpenSourceTor(): Boolean =
+        source.equals(ServerSource.OPEN_SOURCE.wireValue, ignoreCase = true) ||
+            id.startsWith("tor_open_")
+
+    fun protocol(): TunnelProtocol =
+        if (isOpenSourceTor()) TunnelProtocol.TOR else TunnelProtocol.WIREGUARD
+
     fun toWireGuardConfigString(): String {
         val sb = StringBuilder()
         sb.appendLine("[Interface]")
@@ -160,6 +178,7 @@ data class IpVerificationInfo(
 
 fun countryCodeToFlag(countryCode: String): String {
     val clean = countryCode.trim().uppercase(Locale.US)
+    if (clean == "AUTO" || clean == "ALL") return "\u26A1"
     if (clean.length != 2 || !clean.all { it in 'A'..'Z' }) return "\uD83C\uDF10"
     val first = Character.codePointAt(clean, 0) - 'A'.code + 0x1F1E6
     val second = Character.codePointAt(clean, 1) - 'A'.code + 0x1F1E6
@@ -168,6 +187,7 @@ fun countryCodeToFlag(countryCode: String): String {
 
 fun countryNameFromCode(code: String): String {
     val clean = code.trim().uppercase(Locale.US)
+    if (clean == "AUTO") return "Global Auto Fastest"
     if (clean.length != 2) return clean.ifBlank { "Global" }
     val locale = Locale("", clean)
     val display = locale.getDisplayCountry(Locale.ENGLISH)

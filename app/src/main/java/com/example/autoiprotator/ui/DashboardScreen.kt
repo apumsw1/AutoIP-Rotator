@@ -137,7 +137,9 @@ fun DashboardScreen(
     )
 
     val countryBuckets = remember(servers) {
-        servers.groupBy { it.countryCode.uppercase() }
+        servers
+            .filterNot { it.countryCode.equals("AUTO", ignoreCase = true) }
+            .groupBy { it.countryCode.uppercase() }
             .entries
             .map { (code, list) ->
                 val minPing = list.mapNotNull { it.latencyMs.takeIf { ms -> ms >= 0L } }.minOrNull()
@@ -466,11 +468,20 @@ fun DashboardScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            val isTor = activeServer?.isOpenSourceTor() != false
                             TypewriterTerminalText(
                                 text = when (tunnelStatus) {
-                                    TunnelStatus.CONNECTED -> "THUNDER_LINK_LOCKED // CHACHA20_STREAM_ACTIVE"
+                                    TunnelStatus.CONNECTED -> if (isTor) {
+                                        "ONION_LINK_LOCKED // TOR_TUN2SOCKS_ACTIVE"
+                                    } else {
+                                        "THUNDER_LINK_LOCKED // CHACHA20_STREAM_ACTIVE"
+                                    }
                                     TunnelStatus.AUTO_SELECTING -> "SCANNING_NODES // SELECTING_LOWEST_PING"
-                                    TunnelStatus.CONNECTING -> "CURVE25519_HANDSHAKE // ROUTING_WG0"
+                                    TunnelStatus.CONNECTING -> if (isTor) {
+                                        "TOR_CIRCUIT_HANDSHAKE // ROUTING_TUN0"
+                                    } else {
+                                        "CURVE25519_HANDSHAKE // ROUTING_WG0"
+                                    }
                                     else -> "FLUSHING_INTERFACE // DISCONNECTING"
                                 },
                                 color = statusColor
@@ -516,9 +527,10 @@ fun DashboardScreen(
                                 Text(
                                     text = if (activeServer != null) {
                                         val lat = if (activeServer.latencyMs >= 0) "${activeServer.latencyMs} ms" else "AUTO_PING"
-                                        "${activeServer.countryName} // $lat // ${activeServer.endpoint}"
+                                        val modeTag = if (activeServer.isOpenSourceTor()) "OPEN_TOR (NO-VPS)" else "WIREGUARD"
+                                        "${activeServer.countryName} // $lat // $modeTag"
                                     } else {
-                                        "Tap Connect for 1-click Auto Provision or pick QR"
+                                        "Tap 1-TAP CONNECT for free Open-Source Multi-Country VPN"
                                     },
                                     style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
                                     color = spectrumSecondary,
@@ -564,7 +576,7 @@ fun DashboardScreen(
                             onClick = {
                                 if (isConnected) onRotateNodeClick() else onAutoConnectClick()
                             },
-                            enabled = !isBusy && totalServers > 0,
+                            enabled = !isBusy,
                             modifier = Modifier
                                 .height(52.dp)
                                 .minimumInteractiveComponentSize()
@@ -740,12 +752,12 @@ fun DashboardScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         ScrambleRevealText(
-                            text = ":: AUTO_SYNC_OR_SCAN_QR",
+                            text = ":: ZERO_CONFIG_AUTO_OR_QR",
                             style = MaterialTheme.typography.titleMedium,
                             color = spectrumPrimary
                         )
                         Text(
-                            text = "Link your Cloudflare Worker once for 1-click multi-country auto-connect (no custom.conf needed), or import a WireGuard QR config.",
+                            text = "For 1-tap auto-connect without .conf or QR (like Thunder VPN), link your Cloudflare Worker fleet once or bake DEFAULT_WORKER_URL into the build. Custom .conf & QR scan stay available anytime.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = VpnPalette.TextSecondary
                         )

@@ -66,13 +66,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.example.autoiprotator.auth.authStateFlow
+import androidx.compose.runtime.DisposableEffect
+import com.example.autoiprotator.auth.onGoogleSignInClicked
 import com.example.autoiprotator.auth.signOut
+import com.example.autoiprotator.data.LocalVpnDataSource
 import com.example.autoiprotator.data.VpnRepository
+import com.example.autoiprotator.model.TunnelProtocol
 import com.example.autoiprotator.model.TunnelStatus
 import com.example.autoiprotator.model.UiState
 import com.example.autoiprotator.network.ServerLatencyProber
-import com.example.autoiprotator.ui.AuthScreen
 import com.example.autoiprotator.ui.CountriesScreen
 import com.example.autoiprotator.ui.DashboardScreen
 import com.example.autoiprotator.ui.QrScannerScreen
@@ -86,7 +88,9 @@ import com.example.autoiprotator.ui.theme.JetBrainsMonoFontFamily
 import com.example.autoiprotator.ui.theme.UltraVpnTheme
 import com.example.autoiprotator.ui.theme.VpnPalette
 import com.example.autoiprotator.viewmodel.VpnViewModel
+import com.example.autoiprotator.vpn.OpenSourceNodeStore
 import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -117,47 +121,62 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppContent() {
     val auth = Firebase.auth
-    val currentUser by auth.authStateFlow()
-        .collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    var currentUser by remember { mutableStateOf(auth.currentUser) }
+    DisposableEffect(Unit) {
+        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            currentUser = firebaseAuth.currentUser
+        }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
 
     val user = currentUser
-    if (user == null) {
-        AuthScreen(onAuthSuccess = { /* AuthStateListener updates automatically */ })
-    } else {
-        key(user.uid) {
-            AuthenticatedVpnApp(
-                currentUserId = user.uid,
-                displayName = user.displayName ?: "VPN Operator",
-                email = user.email
-            )
-        }
+    val sessionKey = user?.uid?.takeIf { it.isNotBlank() } ?: "local_device_mode"
+    key(sessionKey) {
+        UltraVpnApp(
+            isSignedIn = user != null && user.uid.isNotBlank(),
+            currentUserId = user?.uid?.takeIf { it.isNotBlank() } ?: "local_device",
+            displayName = user?.displayName ?: "LOCAL OPERATOR",
+            email = user?.email,
+            onAuthStateUpdated = { currentUser = Firebase.auth.currentUser }
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AuthenticatedVpnApp(
+private fun UltraVpnApp(
+    isSignedIn: Boolean,
     currentUserId: String,
     displayName: String,
-    email: String?
+    email: String?,
+    onAuthStateUpdated: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
     val vpnEngine = remember(context) { VpnEngine(context.applicationContext) }
 
+    var isSigningIn by remember { mutableStateOf(false) }
+    var authErrorMessage by remember { mutableStateOf<String?>(null) }
+
     val viewModel: VpnViewModel = viewModel(
-        key = currentUserId,
+        key = if (isSignedIn) currentUserId else "local_device_mode",
         factory = viewModelFactory {
             initializer {
                 val app = checkNotNull(this[APPLICATION_KEY]) {
                     "APPLICATION_KEY missing from CreationExtras"
                 }
-                val databaseId = app.getString(R.string.firestore_database_id)
-                val db = FirebaseFirestore.getInstance(databaseId)
+                val dataSource = if (isSignedIn) {
+                    val databaseId = app.getString(R.string.firestore_database_id)
+                    VpnRepository(FirebaseFirestore.getInstance(databaseId))
+                } else {
+                    LocalVpnDataSource(app)
+                }
                 VpnViewModel(
-                    repository = VpnRepository(db),
+                    repository = dataSource,
                     vpnEngine = vpnEngine,
+                    openSourceNodeStore = OpenSourceNodeStore(app),
                     currentUserId = currentUserId,
                     initialDisplayName = displayName,
                     initialEmail = email
@@ -185,6 +204,7 @@ private fun AuthenticatedVpnApp(
     val serversState by viewModel.serversState.collectAsStateWithLifecycle()
     val logsState by viewModel.logsState.collectAsStateWithLifecycle()
     val tunnelStatus by viewModel.tunnelStatus.collectAsStateWithLifecycle()
+    val activeProtocol by viewModel.activeProtocol.collectAsStateWithLifecycle()
     val selectedServerId by viewModel.selectedServerId.collectAsStateWithLifecycle()
     val selectedCountryFilter by viewModel.selectedCountryFilter.collectAsStateWithLifecycle()
     val ipInfo by viewModel.ipInfo.collectAsStateWithLifecycle()
@@ -234,13 +254,18 @@ private fun AuthenticatedVpnApp(
                                 fontWeight = FontWeight.Bold,
                                 color = VpnPalette.TextPrimary
                             )
+                            val enginePrefix = if (activeProtocol == TunnelProtocol.TOR) {
+                                "TOR_ONION"
+                            } else {
+                                "WG_KERNEL"
+                            }
                             TypewriterTerminalText(
                                 text = when (tunnelStatus) {
-                                    TunnelStatus.CONNECTED -> "WG_KERNEL::ENCRYPTED_ONLINE"
+                                    TunnelStatus.CONNECTED -> "$enginePrefix::ENCRYPTED_ONLINE"
                                     TunnelStatus.CONNECTING,
-                                    TunnelStatus.AUTO_SELECTING -> "WG_KERNEL::HANDSHAKE_ACTIVE"
-                                    TunnelStatus.ERROR -> "WG_KERNEL::FAULT_DETECTED"
-                                    else -> "WG_KERNEL::STANDBY"
+                                    TunnelStatus.AUTO_SELECTING -> "$enginePrefix::HANDSHAKE_ACTIVE"
+                                    TunnelStatus.ERROR -> "$enginePrefix::FAULT_DETECTED"
+                                    else -> "MULTI_ENGINE::OPEN_TOR+WG_READY"
                                 },
                                 prefix = "",
                                 color = spectrumPrimary
@@ -440,6 +465,9 @@ private fun AuthenticatedVpnApp(
                             )
 
                             AppTab.SETTINGS -> SettingsScreen(
+                                isSignedIn = isSignedIn,
+                                isSigningIn = isSigningIn,
+                                authErrorMessage = authErrorMessage,
                                 userDisplayName = displayName,
                                 userEmail = email,
                                 preferencesState = preferencesState,
@@ -453,12 +481,38 @@ private fun AuthenticatedVpnApp(
                                 onSyncWorker = { url, token ->
                                     viewModel.syncFromCloudflareWorker(url, token)
                                 },
+                                onSignInClick = {
+                                    authErrorMessage = null
+                                    isSigningIn = true
+                                    onGoogleSignInClicked(
+                                        context = context,
+                                        credentialManager = credentialManager,
+                                        onAuthSuccess = {
+                                            isSigningIn = false
+                                            onAuthStateUpdated()
+                                        },
+                                        onAuthError = { msg ->
+                                            isSigningIn = false
+                                            authErrorMessage = msg
+                                        },
+                                        scope = scope,
+                                        onAuthCancelled = { hint ->
+                                            isSigningIn = false
+                                            if (!hint.isNullOrBlank()) {
+                                                authErrorMessage = hint
+                                            }
+                                        }
+                                    )
+                                },
                                 onSignOutClick = {
                                     signOut(
                                         credentialManager = credentialManager,
                                         scope = scope,
                                         beforeFirebaseSignOut = {
                                             viewModel.cleanupOnSignOut()
+                                        },
+                                        onSignOutComplete = {
+                                            onAuthStateUpdated()
                                         }
                                     )
                                 }

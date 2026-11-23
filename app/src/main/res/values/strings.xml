@@ -2,6 +2,7 @@
     <string name="app_name">Ultra Multi VPN</string>
     <string name="app_tagline">WIREGUARD MULTI-COUNTRY ENGINE</string>
     <string name="sign_in_google">Sign in with Google</string>
+    <string name="continue_with_google">CONTINUE WITH GOOGLE</string>
     <string name="sign_out">Sign Out</string>
     <string name="status_connected">TUNNEL ACTIVE</string>
     <string name="status_connecting">ESTABLISHING TUNNEL…</string>

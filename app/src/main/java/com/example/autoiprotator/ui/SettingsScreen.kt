@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.History
@@ -62,6 +63,9 @@ import com.example.autoiprotator.ui.theme.VpnPalette
 
 @Composable
 fun SettingsScreen(
+    isSignedIn: Boolean,
+    isSigningIn: Boolean,
+    authErrorMessage: String?,
     userDisplayName: String,
     userEmail: String?,
     preferencesState: UiState<UserPreferences?>,
@@ -71,6 +75,7 @@ fun SettingsScreen(
     onBearerTokenChange: (String) -> Unit,
     onSavePreferences: (workerUrl: String, autoSelect: Boolean, preferredCountry: String) -> Unit,
     onSyncWorker: (workerUrl: String, token: String) -> Unit,
+    onSignInClick: () -> Unit,
     onSignOutClick: () -> Unit
 ) {
     val prefs = (preferencesState as? UiState.Success)?.data
@@ -118,54 +123,104 @@ fun SettingsScreen(
                 borderColor = primaryGlow,
                 secondaryBorderColor = secondaryGlow
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Surface(
-                        modifier = Modifier.size(46.dp),
-                        shape = CutCornerShape(10.dp),
-                        color = primaryGlow.copy(alpha = 0.16f),
-                        border = BorderStroke(1.dp, primaryGlow.copy(alpha = 0.65f))
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Filled.VerifiedUser,
-                                contentDescription = null,
-                                tint = primaryGlow
-                            )
+                        Surface(
+                            modifier = Modifier.size(46.dp),
+                            shape = CutCornerShape(10.dp),
+                            color = primaryGlow.copy(alpha = 0.16f),
+                            border = BorderStroke(1.dp, primaryGlow.copy(alpha = 0.65f))
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = primaryGlow
+                                )
+                            }
                         }
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        ScrambleRevealText(
-                            text = userDisplayName.ifBlank { "OPERATOR_SESSION" },
-                            style = MaterialTheme.typography.titleMedium,
-                            color = VpnPalette.TextPrimary
-                        )
-                        if (!userEmail.isNullOrBlank()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            ScrambleRevealText(
+                                text = if (isSignedIn) {
+                                    userDisplayName.ifBlank { "OPERATOR_SESSION" }
+                                } else {
+                                    "LOCAL_DEVICE_MODE"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                color = VpnPalette.TextPrimary
+                            )
                             Text(
-                                text = "> $userEmail",
+                                text = if (isSignedIn) {
+                                    "> ${userEmail?.takeIf { it.isNotBlank() } ?: "Google Cloud Sync Active"}"
+                                } else {
+                                    "> No Sign-In required • Stored on device"
+                                },
                                 style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
                                 color = secondaryGlow
                             )
                         }
+                        if (isSignedIn) {
+                            OutlinedButton(
+                                onClick = onSignOutClick,
+                                shape = CutCornerShape(10.dp),
+                                border = BorderStroke(1.dp, VpnPalette.CoralError.copy(alpha = 0.8f)),
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("sign_out_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                                    contentDescription = "Sign Out",
+                                    tint = VpnPalette.CoralError,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("LOGOUT", color = VpnPalette.CoralError)
+                            }
+                        }
                     }
-                    OutlinedButton(
-                        onClick = onSignOutClick,
-                        shape = CutCornerShape(10.dp),
-                        border = BorderStroke(1.dp, VpnPalette.CoralError.copy(alpha = 0.8f)),
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .testTag("sign_out_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Logout,
-                            contentDescription = "Sign Out",
-                            tint = VpnPalette.CoralError,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("LOGOUT", color = VpnPalette.CoralError)
+
+                    if (!isSignedIn) {
+                        OutlinedButton(
+                            onClick = onSignInClick,
+                            enabled = !isSigningIn,
+                            shape = CutCornerShape(10.dp),
+                            border = BorderStroke(1.dp, primaryGlow.copy(alpha = 0.75f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .minimumInteractiveComponentSize()
+                                .testTag("google_sign_in_button")
+                        ) {
+                            if (isSigningIn) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = primaryGlow
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("CONNECTING GOOGLE SYNC...", color = primaryGlow)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Login,
+                                    contentDescription = "Sign in with Google",
+                                    tint = primaryGlow,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("OPTIONAL: GOOGLE CLOUD SYNC", color = primaryGlow)
+                            }
+                        }
+                        if (!authErrorMessage.isNullOrBlank()) {
+                            Text(
+                                text = authErrorMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VpnPalette.CoralError
+                            )
+                        }
                     }
                 }
             }

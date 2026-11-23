@@ -23,17 +23,27 @@ export default {
       return json({ ok: true, service: "ultra-multi-vpn-api", timestamp: Date.now() });
     }
 
-    // Require Bearer token on all management routes
-    const authHeader = request.headers.get("Authorization") || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-    if (!env.API_AUTH_TOKEN || token !== env.API_AUTH_TOKEN) {
-      return json({ error: "Unauthorized" }, 401);
+    // Public free-VPN mode when PUBLIC_CATALOG="true"; otherwise require Bearer token
+    const isPublicMode = env.PUBLIC_CATALOG === "true";
+    if (!isPublicMode) {
+      const authHeader = request.headers.get("Authorization") || "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+      if (!env.API_AUTH_TOKEN || token !== env.API_AUTH_TOKEN) {
+        return json({ error: "Unauthorized" }, 401);
+      }
     }
 
     // GET /api/servers — returns configured multi-country WireGuard servers
     if (url.pathname === "/api/servers" && request.method === "GET") {
-      const raw = env.SERVERS_KV ? await env.SERVERS_KV.get("servers_catalog") : null;
-      const servers = raw ? JSON.parse(raw) : [];
+      const kvRaw = env.SERVERS_KV ? await env.SERVERS_KV.get("servers_catalog") : null;
+      const raw = kvRaw || env.SERVERS_JSON || "[]";
+      let servers = [];
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) servers = parsed;
+      } catch (_) {
+        servers = [];
+      }
       return json({ servers });
     }
 

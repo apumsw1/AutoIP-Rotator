@@ -10,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,7 +25,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -53,10 +55,13 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
+import com.example.autoiprotator.R
 import com.example.autoiprotator.auth.attemptAutoSignIn
 import com.example.autoiprotator.auth.onGoogleSignInClicked
 import com.example.autoiprotator.model.TunnelStatus
@@ -77,7 +82,6 @@ fun AuthScreen(
     val credentialManager = remember(context) { CredentialManager.create(context) }
 
     var isLoading by remember { mutableStateOf(false) }
-    var isCheckingAuto by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -85,11 +89,10 @@ fun AuthScreen(
             context = context,
             credentialManager = credentialManager,
             onAuthSuccess = {
-                isCheckingAuto = false
                 onAuthSuccess()
             },
             onUnauthenticated = {
-                isCheckingAuto = false
+                // Keep Continue button ready immediately without blocking UI
             },
             scope = scope
         )
@@ -130,7 +133,7 @@ fun AuthScreen(
             ) {
                 // Animated Cyber Shield Core
                 Box(
-                    modifier = Modifier.size(116.dp),
+                    modifier = Modifier.size(110.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
@@ -159,7 +162,7 @@ fun AuthScreen(
                         }
                     }
                     Surface(
-                        modifier = Modifier.size(76.dp),
+                        modifier = Modifier.size(72.dp),
                         shape = CutCornerShape(16.dp),
                         color = VpnPalette.SlateCard,
                         border = BorderStroke(1.5.dp, primaryGlow.copy(alpha = 0.8f))
@@ -169,7 +172,7 @@ fun AuthScreen(
                                 imageVector = Icons.Filled.Shield,
                                 contentDescription = "Ultra Multi VPN Shield",
                                 tint = primaryGlow,
-                                modifier = Modifier.size(38.dp)
+                                modifier = Modifier.size(36.dp)
                             )
                         }
                     }
@@ -184,19 +187,139 @@ fun AuthScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     TypewriterTerminalText(
-                        text = "WIREGUARD_ENGINE // ZERO_3RD_PARTY_TUNNELS",
+                        text = "WIREGUARD_ENGINE // 1-TAP CONTINUE",
                         color = primaryGlow,
                         textAlign = TextAlign.Center
                     )
                 }
 
-                CyberHudCard(
-                    borderColor = primaryGlow,
-                    secondaryBorderColor = secondaryGlow
+                if (!errorMessage.isNullOrBlank()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        color = VpnPalette.CoralDim,
+                        border = BorderStroke(1.dp, VpnPalette.CoralError.copy(alpha = 0.85f))
+                    ) {
+                        Text(
+                            text = "[ERR] ${errorMessage!!}",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(14.dp)
+                        )
+                    }
+                }
+
+                // Prominent, large 1-tap Continue Login Card & Button
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = CutCornerShape(topStart = 20.dp, bottomEnd = 20.dp, topEnd = 6.dp, bottomStart = 6.dp),
+                    color = VpnPalette.SlateCard.copy(alpha = 0.94f),
+                    border = BorderStroke(1.5.dp, primaryGlow.copy(alpha = 0.8f))
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "QUICK ACCESS // GOOGLE SIGN-IN",
+                            style = MaterialTheme.typography.labelMedium.copy(fontFamily = JetBrainsMonoFontFamily),
+                            color = secondaryGlow
+                        )
+                        Button(
+                            onClick = {
+                                errorMessage = null
+                                isLoading = true
+                                onGoogleSignInClicked(
+                                    context = context,
+                                    credentialManager = credentialManager,
+                                    onAuthSuccess = {
+                                        isLoading = false
+                                        onAuthSuccess()
+                                    },
+                                    onAuthError = { msg ->
+                                        isLoading = false
+                                        errorMessage = msg
+                                    },
+                                    scope = scope,
+                                    onAuthCancelled = { hint ->
+                                        isLoading = false
+                                        if (!hint.isNullOrBlank()) {
+                                            errorMessage = hint
+                                        }
+                                    }
+                                )
+                            },
+                            enabled = !isLoading,
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(74.dp)
+                                .minimumInteractiveComponentSize()
+                                .testTag("google_sign_in_button"),
+                            shape = CutCornerShape(topStart = 16.dp, bottomEnd = 16.dp, topEnd = 4.dp, bottomStart = 4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = primaryGlow,
+                                contentColor = VpnPalette.ObsidianBg
+                            )
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(26.dp),
+                                    color = VpnPalette.ObsidianBg,
+                                    strokeWidth = 3.dp
+                                )
+                                Spacer(Modifier.width(14.dp))
+                                Text(
+                                    text = "CONNECTING ACCOUNT...",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontSize = 18.sp,
+                                        fontFamily = JetBrainsMonoFontFamily
+                                    ),
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.AccountCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.Start
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.continue_with_google),
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontSize = 18.sp,
+                                            fontFamily = JetBrainsMonoFontFamily
+                                        ),
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Text(
+                                        text = "Tap Continue to enter Ultra Multi VPN",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = VpnPalette.ObsidianBg.copy(alpha = 0.8f)
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                CyberHudCard(
+                    borderColor = primaryGlow.copy(alpha = 0.65f),
+                    secondaryBorderColor = secondaryGlow.copy(alpha = 0.65f)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         ScrambleRevealText(
-                            text = ":: AUTHENTICATED_ACCESS_GATE",
+                            text = ":: PROFILE_VAULT_FEATURES",
                             style = MaterialTheme.typography.labelLarge,
                             color = primaryGlow
                         )
@@ -220,82 +343,6 @@ fun AuthScreen(
                         )
                     }
                 }
-
-                if (!errorMessage.isNullOrBlank()) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.small,
-                        color = VpnPalette.CoralDim,
-                        border = BorderStroke(1.dp, VpnPalette.CoralError.copy(alpha = 0.75f))
-                    ) {
-                        Text(
-                            text = "[ERR] ${errorMessage!!}",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = JetBrainsMonoFontFamily),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(14.dp)
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = {
-                        errorMessage = null
-                        isLoading = true
-                        onGoogleSignInClicked(
-                            context = context,
-                            credentialManager = credentialManager,
-                            onAuthSuccess = {
-                                isLoading = false
-                                onAuthSuccess()
-                            },
-                            onAuthError = { msg ->
-                                isLoading = false
-                                errorMessage = msg
-                            },
-                            scope = scope,
-                            onAuthCancelled = {
-                                isLoading = false
-                            }
-                        )
-                    },
-                    enabled = !isLoading && !isCheckingAuto,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .minimumInteractiveComponentSize()
-                        .testTag("google_sign_in_button"),
-                    shape = CutCornerShape(topStart = 14.dp, bottomEnd = 14.dp, topEnd = 4.dp, bottomStart = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = primaryGlow,
-                        contentColor = VpnPalette.ObsidianBg
-                    )
-                ) {
-                    if (isLoading || isCheckingAuto) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = VpnPalette.ObsidianBg,
-                            strokeWidth = 2.5.dp
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = if (isCheckingAuto) "VERIFYING_SESSION..." else "AUTHENTICATING...",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.Lock,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            text = "INIT_AUTH // SIGN IN WITH GOOGLE",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
             }
         }
     }
@@ -313,7 +360,7 @@ private fun SecurityFeatureRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Surface(
-            modifier = Modifier.size(38.dp),
+            modifier = Modifier.size(36.dp),
             shape = CutCornerShape(8.dp),
             color = VpnPalette.SlateElevated,
             border = BorderStroke(1.dp, accentColor.copy(alpha = 0.65f))
@@ -323,7 +370,7 @@ private fun SecurityFeatureRow(
                     imageVector = icon,
                     contentDescription = null,
                     tint = accentColor,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
